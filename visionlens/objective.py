@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from functools import wraps
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,7 +8,11 @@ import numpy as np
 from typing import List, Tuple, Dict, Callable
 
 from visionlens.utils import T, M, A
+from decorator import decorator
 
+
+# IMAGE_SHAPE -> (B, C, H, W)
+# ACTIVATION_SHAPE -> (B, C, H, W)
 
 class Hook:
     def __init__(self, module: M):
@@ -43,14 +48,14 @@ class Objective:
         self.objective_func = objective_func
         self.name = name
 
+    def __call__(self, act_dict: Dict[str, T]) -> float:
+        return self.objective_func(act_dict)
+
     def __str__(self):
         return self.name
 
     def __repr__(self):
         return self.name
-
-    def __call__(self, act_dict: Dict[str, T]) -> float:
-        return self.objective_func(act_dict)
 
     def __add__(self, other: "Objective" | float | int) -> "Objective":
         if isinstance(other, Objective):
@@ -148,18 +153,70 @@ class Objective:
 
 
 def activation_loss(
-    actvations: T, loss_type: str | Callable[[T], float] = "mse" # type: ignore
+    actvations: T, loss_type: str | Callable[[T], float] = "mean" 
 ) -> float:
     
     loss_dict = {
-        "mse": F.mse_loss,
-        "bce": F.binary_cross_entropy,
-        "cross_entropy": F.cross_entropy,
+        "mean": lambda x: x.mean(),
+        "sum": lambda x: x.sum(),
+        "max": lambda x: x.max(),
+        "min": lambda x: x.min(),
     }
 
     if isinstance(loss_type, str):
-        loss_func = loss_dict[loss_type]
+        loss_fn = loss_dict[loss_type]
     else:
-        loss_func = loss_type
+        loss_fn = loss_type
 
-    return loss_func(actvations)
+    return loss_fn(actvations)
+
+
+###################### Objectives ######################
+
+# objective_wrapper, decorator
+def objective_wrapper(
+    func: Callable[..., Callable[[Dict[str, T]], float]]
+):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        objective_func = func(*args, **kwargs)
+        objective_name = func.__name__
+        # args_str = " [" + ", ".join([_make_arg_str(arg) for arg in args]) + "]"
+        # description = objective_name.title() + args_str
+        return Objective(objective_func, objective_name)
+
+    return wrapper
+
+
+@objective_wrapper
+def channel_obj(layer, channel, loss_type="mean"):
+    
+    def get_activation_loss(act_dict):
+        return -activation_loss(act_dict[layer][:, channel], loss_type)
+    
+    return get_activation_loss
+
+
+@objective_wrapper
+def layer_obj(layer, loss_type="mean"):
+    
+    def get_activation_loss(act_dict):
+        return -activation_loss(act_dict[layer], loss_type)
+    
+    return get_activation_loss
+
+
+@objective_wrapper
+def neuron_obj(layer, channel, height=None, width=None, loss_type="mean"):
+    
+    def get_activation_loss(act_dict):
+
+        if height is None:
+            height = act_dict[layer].shape[2] // 2
+        if width is None:
+            width = act_dict[layer].shape[3] // 2
+        
+
+        return -activation_loss(act_dict[layer][:, channel, height, width], loss_type)
+    
+    return get_activation_loss
