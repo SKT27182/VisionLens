@@ -4,18 +4,29 @@ import numpy as np
 
 from typing import List, Tuple, Dict, Callable
 
-from visionlens.utils import T, M, A
+from visionlens.objective import Objective
+from visionlens.utils import T, M, A, AD, device
 
 
-class Visualize:
+class Visualizer:
 
     def __init__(
         self,
-        model,
-        objective_f,
+        model: M,
+        objective_f: Callable[[AD], float] | str,
+        loss_type: str = "mean",
         param_f=None,
     ):
-        pass
+
+        if isinstance(objective_f, str):
+            self.objective_f = Objective.create_objective(objective_f, loss_type)
+
+        else:
+            self.objective_f = Objective(objective_f, "custom")
+
+        self.model = model.to(device)
+
+        
 
     def visualize(
         self,

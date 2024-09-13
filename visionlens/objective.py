@@ -5,11 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from typing import List, Tuple, Dict, Callable
+from typing import List, Tuple, Dict, Callable, Union
 
 from visionlens.utils import T, M, A
 from decorator import decorator
 
+from visionlens.utils import T, M, A, AD, device
 
 # IMAGE_SHAPE -> (B, C, H, W)
 # ACTIVATION_SHAPE -> (B, C, H, W)
@@ -44,12 +45,45 @@ class Hook:
 
 class Objective:
 
-    def __init__(self, objective_func: Callable[[Dict[str, T]], float], name: str):
+    def __init__(self, objective_func: Callable[[AD], float], name: str):
         self.objective_func = objective_func
         self.name = name
 
-    def __call__(self, act_dict: Dict[str, T]) -> float:
+    def __call__(self, act_dict: AD) -> float:
         return self.objective_func(act_dict)
+
+    @staticmethod
+    def create_objective(
+        obj_str: str,
+        loss_type: Union[str, Callable[[AD], float]] = "mean",
+    ) -> "Objective":
+
+        """
+        obj_str: str, It contains the layer_name:channel:height:width, where channel, height, width are optional.
+
+        loss_type: str | Callable[[T], float], The type of loss to be used. Default is "mean".
+
+        Example:
+
+            obj_str = "conv1:0:10:10" -> This will create an objective to maximize the activation of the 0th channel of the conv1 layer at the 10th row and 10th column
+        """
+
+        obj_str = obj_str.lower()
+
+        obj_parts = obj_str.split(":")
+        layer = obj_parts[0]
+        channel = int(obj_parts[1]) if len(obj_parts) > 1 else None
+        height = int(obj_parts[2]) if len(obj_parts) > 2 else None
+        width = int(obj_parts[3]) if len(obj_parts) > 3 else None
+
+        if channel is not None and (height is None or width is None):
+            return neuron_obj(layer, channel, height, width, loss_type)
+
+        elif channel is None:
+            return layer_obj(layer, loss_type)
+
+        else:
+            return layer_obj(layer,  loss_type)
 
     def __str__(self):
         return self.name
@@ -175,7 +209,7 @@ def activation_loss(
 
 # objective_wrapper, decorator
 def objective_wrapper(
-    func: Callable[..., Callable[[Dict[str, T]], float]]
+    func: Callable[..., Callable[[AD], float]]
 ):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -208,15 +242,24 @@ def layer_obj(layer, loss_type="mean"):
 
 @objective_wrapper
 def neuron_obj(layer, channel, height=None, width=None, loss_type="mean"):
-    
+
     def get_activation_loss(act_dict):
 
-        if height is None:
+        if height is None and width is None:
+            # Both height and width are None, default to half of the spatial dimensions
             height = act_dict[layer].shape[2] // 2
-        if width is None:
-            width = act_dict[layer].shape[3] // 2
-        
+            width =  act_dict[layer].shape[3] // 2
+            selected_activations = act_dict[layer][:, channel, height, width]
 
-        return -activation_loss(act_dict[layer][:, channel, height, width], loss_type)
-    
+        elif height is not None and width is None:
+            # Width is None, select the entire width dimension
+            selected_activations = act_dict[layer][:, channel, height, :]
+
+        elif height is None and width is not None:
+            # Height is None, select the entire height dimension
+            selected_activations = act_dict[layer][:, channel, :, width]
+
+        return -activation_loss(selected_activations, loss_type)
+
+
     return get_activation_loss

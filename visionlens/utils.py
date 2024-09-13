@@ -13,7 +13,9 @@ from logging import Logger
 M = nn.Module
 T = torch.Tensor
 A = np.ndarray
+AD = Dict[str, T]   # Activation Dictionary Type for hooks [layer_name: activation]
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 COLOUR_MAPPING = {
     "BLACK": "\033[30m",
@@ -168,10 +170,6 @@ def test_logger():
     logger.warning("This is a warning message")
     logger.error("This is an error message")
     logger.critical("This is a critical message")
-
-
-
-
 
 
 def get_activation(activation: str):
