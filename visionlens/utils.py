@@ -13,7 +13,7 @@ from logging import Logger
 M = nn.Module
 T = torch.Tensor
 A = np.ndarray
-AD = Dict[str, T]   # Activation Dictionary Type for hooks [layer_name: activation]
+AD = Dict[str, T]  # Activation Dictionary Type for hooks [layer_name: activation]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -59,9 +59,11 @@ def set_log_level_to_mine_logger(level: int | str) -> None:
 
     for _, logger in Logger.manager.loggerDict.items():
         if isinstance(logger, Logger):
-            if hasattr(logger, "mine"):
-                print(f"Setting log level of {logger.name} to {level}")
+            if hasattr(logger, "mine") and logger.mine:
+                # logger.debug(f"Setting log level of {logger.name} to {level}")
                 logger.setLevel(level)
+                for handler in logger.handlers:
+                    handler.setLevel(level)
 
 
 class CustomFormatter(logging.Formatter):
@@ -162,14 +164,6 @@ def create_logger(
 
 
 logger = create_logger(__name__)
-
-
-def test_logger():
-    logger.debug("This is a debug message")
-    logger.info("This is an info message")
-    logger.warning("This is a warning message")
-    logger.error("This is an error message")
-    logger.critical("This is a critical message")
 
 
 def get_activation(activation: str):
