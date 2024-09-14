@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -201,3 +202,28 @@ def get_optimizer(optimizer: str, model: M, lr: float):
         return torch.optim.SGD(model.parameters(), lr=lr)
     else:
         raise ValueError(f"Optimizer {optimizer} not supported")
+
+
+def get_model_layerxs(model, getLayerRepr=False):
+    """
+    If getLayerRepr is True, return a OrderedDict of layer names, layer representation string pair.
+    If it's False, just return a list of layer names
+    """
+    layers = OrderedDict() if getLayerRepr else []
+
+    # recursive function to get layers
+    def get_layers(net, prefix=[]):
+        # if net is a leaf module (i.e. not a container) add it to the list
+        if hasattr(net, "_modules"):
+            for name, layer in net._modules.items():
+                if layer is None:
+                    # e.g. GoogLeNet's aux1 and aux2 layers
+                    continue
+                if getLayerRepr:
+                    layers["_".join(prefix + [name])] = layer.__repr__()
+                else:
+                    layers.append("_".join(prefix + [name]))
+                get_layers(layer, prefix=prefix + [name])
+
+    get_layers(model)
+    return layers

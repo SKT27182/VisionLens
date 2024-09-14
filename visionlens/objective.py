@@ -7,7 +7,7 @@ import numpy as np
 
 from typing import List, Tuple, Dict, Callable, Union
 
-from visionlens.utils import T, M, A
+from visionlens.utils import T, M, A, create_logger
 from decorator import decorator
 
 from visionlens.utils import T, M, A, AD, device
@@ -15,21 +15,58 @@ from visionlens.utils import T, M, A, AD, device
 # IMAGE_SHAPE -> (B, C, H, W)
 # ACTIVATION_SHAPE -> (B, C, H, W)
 
+logger = create_logger(__name__)
+
+
 class Hook:
+
     def __init__(self, module: M):
+        """
+        Hook class to register forward hooks on the model.
+
+        Args:
+            module: M, The module on which the hook is to be registered.
+
+        """
+        logger.debug(f"Initializing Hook for module: {module}")
         self.hook = module.register_forward_hook(self.hook_fn)
         self.module = module
         self.features = None
 
+    def __call__(self, ):
+        return self.features
+
     def hook_fn(self, module: M, input: T, output: T):
+        """
+        Hook function to be registered on the module.
+
+        Args:
+            module: M, The module on which the hook is registered.
+            input: T, The input tensor to the module.
+            output: T, The output tensor from the module.
+
+        """
+        logger.debug(f"Hook function called on module: {module}")
         self.features = output
         self.module = module
 
     def close(self):
+        """
+        Close the hook.
+        """
+        logger.debug(f"Closing hook for module: {self.module}")
+
         self.hook.remove()
 
     @staticmethod
     def close_all_hooks(model: M):
+        """
+        Close all the hooks on the model.
+
+        Args:
+            model: M, The model on which the hooks are to be closed.
+        """
+        logger.debug(f"Closing all hooks for model: {model.__class__.__name__}")
         for module in model.children():
             if len(list(module.children())) > 0:
                 Hook.close_all_hooks(module)
@@ -42,22 +79,99 @@ class Hook:
                     hook.remove()
                 module.backward_hooks = OrderedDict()
 
+    @classmethod
+    def regester_hooks(
+        cls, model: M, layers: Union[List[str], str] = None, exact_match: bool = False
+    ) -> Dict[str, "Hook"]:
+        """
+        Register hooks on the model.
+
+        Args:
+            model: M, The model on which the hooks are to be registered.
+            layers: List[str], The list of layers on which the hooks are to be registered. Default is None.
+                                - If None, hooks are registered on all the layers. otherwise,
+                                only on the specified layers which have that keyword in their name.
+
+        Returns:
+            Dict[str, Hook]: A dictionary containing the layer name and the hook instance.
+        """
+        if isinstance(layers, str):
+            layers = [layers]
+
+        logger.info(
+            f"Registering hooks for model: {model.__class__.__name__} with layers: {layers} and exact_match: {exact_match}"
+        )
+        hooks_dict = {}
+
+        for name, module in model.named_modules():
+
+            is_valid_layer = (
+                any([layer in name for layer in layers]) if layers else False
+            )
+
+            if exact_match:
+                is_valid_layer = (
+                    any([layer == name for layer in layers]) if layers else False
+                )
+
+            if layers is None or is_valid_layer:
+
+                logger.debug(f"Registering hook on {name}")
+
+                hooks_dict[name] = cls(
+                    module
+                )
+
+        return hooks_dict
+
+    @staticmethod
+    def get_features(hooks_dict: Dict[str, "Hook"], layer: str = None) -> T:
+        """
+        Get the features from the layer.
+
+        Args:
+            hooks_dict: Dict[str, Hook], The dictionary containing the layer name and the hook instance.
+            layer: str, The layer name from which the features are to be extracted.
+
+        Returns:
+            T: The features from the layer.
+        """
+        logger.debug(f"Getting features from layer: {layer}")
+
+        # if layer == 'input':
+        #     return hooks_dict['input'].features
+        if layer == "labels":
+            return list(hooks_dict.values())[-1].features
+        else:
+            assert (
+                layer in hooks_dict
+            ), f"Invalid layer {layer}. Get the list of layers using `visionlens.utils.get_model_layerxs(model)`"
+
+            output = hooks_dict[layer].features
+
+            assert (
+                output is not None
+            ), f"Features for layer {layer} not found. Make sure the model is in evaluation mode."
+
+            return output
+
 
 class Objective:
 
     def __init__(self, objective_func: Callable[[AD], float], name: str):
+        logger.debug(f"Initializing Objective with name: {name}")
         self.objective_func = objective_func
         self.name = name
 
-    def __call__(self, act_dict: AD) -> float:
-        return self.objective_func(act_dict)
+    def __call__(self, activation_dic: 'Hook') -> float:
+        logger.debug(f"Calling Objective: {self.name}")
+        return self.objective_func(activation_dic)
 
     @staticmethod
     def create_objective(
         obj_str: str,
         loss_type: Union[str, Callable[[AD], float]] = "mean",
     ) -> "Objective":
-
         """
         obj_str: str, It contains the layer_name:channel:height:width, where channel, height, width are optional.
 
@@ -66,8 +180,14 @@ class Objective:
         Example:
 
             obj_str = "conv1:0:10:10" -> This will create an objective to maximize the activation of the 0th channel of the conv1 layer at the 10th row and 10th column
-        """
 
+        Returns:
+
+                Objective: An instance of the Objective class.
+        """
+        logger.debug(
+            f"Creating Objective from string: {obj_str} with loss_type: {loss_type}"
+        )
         obj_str = obj_str.lower()
 
         obj_parts = obj_str.split(":")
@@ -76,14 +196,14 @@ class Objective:
         height = int(obj_parts[2]) if len(obj_parts) > 2 else None
         width = int(obj_parts[3]) if len(obj_parts) > 3 else None
 
-        if channel is not None and (height is None or width is None):
+        if channel is not None and (height is not None or width is not None):
             return neuron_obj(layer, channel, height, width, loss_type)
 
-        elif channel is None:
-            return layer_obj(layer, loss_type)
+        elif channel is not None:
+            return channel_obj(layer, channel, loss_type)
 
         else:
-            return layer_obj(layer,  loss_type)
+            return layer_obj(layer, loss_type)
 
     def __str__(self):
         return self.name
@@ -91,90 +211,98 @@ class Objective:
     def __repr__(self):
         return self.name
 
-    def __add__(self, other: "Objective" | float | int) -> "Objective":
+    def __add__(self, other: Union["Objective", float, int]) -> "Objective":
         if isinstance(other, Objective):
-
+            logger.debug(f"Adding Objective: {self.name} with Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) + other(act_dict)
             name = f"{self.name}, {other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
+            logger.debug(f"Adding Objective: {self.name} with value: {other}")
             objective_func = lambda act_dict: self(act_dict) + other
             name = f"{self.name} + {other}"
             return Objective(objective_func, name)
 
         else:
-
             raise ValueError(f"Unsupported type {type(other)} for addition")
 
     @staticmethod
     def sum(objectives: List["Objective"]) -> "Objective":
+        logger.debug(
+            f"Summing Objectives: {[objective.name for objective in objectives]}"
+        )
         objective_func = lambda act_dict: sum(
             [objective(act_dict) for objective in objectives]
         )
         name = ", ".join([objective.name for objective in objectives])
         return Objective(objective_func, name)
 
-    def __sub__(self, other: "Objective" | float | int) -> "Objective":
+    def __sub__(self, other: Union["Objective", float, int]) -> "Objective":
         if isinstance(other, Objective):
-
+            logger.debug(
+                f"Subtracting Objective: {other.name} from Objective: {self.name}"
+            )
             objective_func = lambda act_dict: self(act_dict) - other(act_dict)
             name = f"{self.name}, {other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
+            logger.debug(f"Subtracting value: {other} from Objective: {self.name}")
             objective_func = lambda act_dict: self(act_dict) - other
             name = f"{self.name} - {other}"
             return Objective(objective_func, name)
 
         else:
-
             raise ValueError(f"Unsupported type {type(other)} for subtraction")
 
     def __neg__(self) -> "Objective":
+        logger.debug(f"Negating Objective: {self.name}")
         objective_func = lambda act_dict: -self(act_dict)
         name = f"-{self.name}"
         return Objective(objective_func, name)
 
-    def __mul__(self, other: "Objective" | float | int) -> "Objective":
+    def __mul__(self, other: Union["Objective", float, int]) -> "Objective":
         if isinstance(other, Objective):
-
+            logger.debug(
+                f"Multiplying Objective: {self.name} with Objective: {other.name}"
+            )
             objective_func = lambda act_dict: self(act_dict) * other(act_dict)
             name = f"{self.name}, {other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
+            logger.debug(f"Multiplying Objective: {self.name} with value: {other}")
             objective_func = lambda act_dict: self(act_dict) * other
             name = f"{self.name} * {other}"
             return Objective(objective_func, name)
 
         else:
-
             raise ValueError(f"Unsupported type {type(other)} for multiplication")
 
-    def __truediv__(self, other: "Objective" | float | int) -> "Objective":
+    def __truediv__(self, other: Union["Objective", float, int]) -> "Objective":
         if isinstance(other, Objective):
-
+            logger.debug(f"Dividing Objective: {self.name} by Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) / other(act_dict)
             name = f"{self.name}, {other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
+            logger.debug(f"Dividing Objective: {self.name} by value: {other}")
             objective_func = lambda act_dict: self(act_dict) / other
             name = f"{self.name} / {other}"
             return Objective(objective_func, name)
 
         else:
-
             raise ValueError(f"Unsupported type {type(other)} for division")
 
-    def __radd__(self, other: "Objective" | float | int) -> "Objective":
+    def __radd__(self, other: Union["Objective", float, int]) -> "Objective":
         return self.__add__(other)
 
-    def __rsub__(self, other: "Objective" | float | int) -> "Objective":
+    def __rsub__(self, other: Union["Objective", float, int]) -> "Objective":
         return self.__sub__(other)
 
-    def __rmul__(self, other: "Objective" | float | int) -> "Objective":
+    def __rmul__(self, other: Union["Objective", float, int]) -> "Objective":
         return self.__mul__(other)
 
     def __eq__(self, other: "Objective") -> bool:
@@ -187,9 +315,9 @@ class Objective:
 
 
 def activation_loss(
-    actvations: T, loss_type: str | Callable[[T], float] = "mean" 
+    actvations: T, loss_type: Union[str, Callable[[T], float]] = "mean"
 ) -> float:
-    
+    logger.debug(f"Calculating activation loss with loss_type: {loss_type}")
     loss_dict = {
         "mean": lambda x: x.mean(),
         "sum": lambda x: x.sum(),
@@ -207,16 +335,14 @@ def activation_loss(
 
 ###################### Objectives ######################
 
+
 # objective_wrapper, decorator
-def objective_wrapper(
-    func: Callable[..., Callable[[AD], float]]
-):
+def objective_wrapper(func: Callable[..., Callable[[AD], float]]):
     @wraps(func)
     def wrapper(*args, **kwargs):
+        logger.debug(f"Wrapping function: {func.__name__}")
         objective_func = func(*args, **kwargs)
         objective_name = func.__name__
-        # args_str = " [" + ", ".join([_make_arg_str(arg) for arg in args]) + "]"
-        # description = objective_name.title() + args_str
         return Objective(objective_func, objective_name)
 
     return wrapper
@@ -224,31 +350,37 @@ def objective_wrapper(
 
 @objective_wrapper
 def channel_obj(layer, channel, loss_type="mean"):
-    
+    logger.info(
+        f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}"
+    )
+
     def get_activation_loss(act_dict):
-        return -activation_loss(act_dict[layer][:, channel], loss_type)
-    
+        return -activation_loss(act_dict[layer]()[:, channel], loss_type)
+
     return get_activation_loss
 
 
 @objective_wrapper
 def layer_obj(layer, loss_type="mean"):
-    
+    logger.debug(f"Creating layer objective for layer: {layer}, loss_type: {loss_type}")
+
     def get_activation_loss(act_dict):
         return -activation_loss(act_dict[layer], loss_type)
-    
+
     return get_activation_loss
 
 
 @objective_wrapper
 def neuron_obj(layer, channel, height=None, width=None, loss_type="mean"):
+    logger.debug(
+        f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
+    )
 
     def get_activation_loss(act_dict):
-
         if height is None and width is None:
             # Both height and width are None, default to half of the spatial dimensions
             height = act_dict[layer].shape[2] // 2
-            width =  act_dict[layer].shape[3] // 2
+            width = act_dict[layer].shape[3] // 2
             selected_activations = act_dict[layer][:, channel, height, width]
 
         elif height is not None and width is None:
@@ -260,6 +392,5 @@ def neuron_obj(layer, channel, height=None, width=None, loss_type="mean"):
             selected_activations = act_dict[layer][:, channel, :, width]
 
         return -activation_loss(selected_activations, loss_type)
-
 
     return get_activation_loss
