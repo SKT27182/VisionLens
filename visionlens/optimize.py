@@ -23,7 +23,7 @@ class Visualizer:
         objective_f: Callable[[AD], float] | str,
         model_hooks: AD = None,
         param_f: Callable[[], T] = None,
-        loss_type: str | Callable[[AD], float] = "mean",
+        loss_type: str | Callable[[T], float] = "mean",
     ):
 
         if isinstance(objective_f, str):
@@ -85,6 +85,7 @@ class Visualizer:
         self,
         lr: float = 5e-2,
         freq: int = 10,
+        transforms: Callable[[T], T] = None,
         progress: bool = True,
         show_last: bool = True,
         epochs: int = 100,

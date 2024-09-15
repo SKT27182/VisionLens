@@ -23,7 +23,7 @@ class Hook:
             module: M, The module on which the hook is to be registered.
 
         """
-        logger.debug(f"Initializing Hook for module: {module}")
+        logger.debug(f"Initializing Hook for module: {module.__class__.__name__}")
         self.hook = module.register_forward_hook(self.hook_fn)
         self.module = module
         self.features = None
@@ -166,7 +166,7 @@ class Objective:
     @staticmethod
     def create_objective(
         obj_str: str,
-        loss_type: Union[str, Callable[[AD], float]] = "mean",
+        loss_type: Union[str, Callable[[T], float]] = "mean",
     ) -> "Objective":
         """
         obj_str: str, It contains the layer_name:channel:height:width, where channel, height, width are optional.
@@ -196,19 +196,19 @@ class Objective:
             logger.debug(
                 f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
             )
-            return neuron_obj(layer, channel, height, width, loss_type)
+            return neuron_obj(layer, channel, height, width, loss_type, obj_str=obj_str)
 
         elif channel is not None:
             logger.debug(
                 f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}"
             )
-            return channel_obj(layer, channel, loss_type)
+            return channel_obj(layer, channel, loss_type, obj_str=obj_str)
 
         else:
             logger.debug(
                 f"Creating layer objective for layer: {layer}, loss_type: {loss_type}"
             )
-            return layer_obj(layer, loss_type)
+            return layer_obj(layer, loss_type, obj_str=obj_str)
 
     def __str__(self):
         return self.name
@@ -220,13 +220,13 @@ class Objective:
         if isinstance(other, Objective):
             logger.debug(f"Adding Objective: {self.name} with Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) + other(act_dict)
-            name = f"{self.name}, {other.name}"
+            name = f"{self.name}_add_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Adding Objective: {self.name} with value: {other}")
             objective_func = lambda act_dict: self(act_dict) + other
-            name = f"{self.name} + {other}"
+            name = f"{self.name}_add_{other}"
             return Objective(objective_func, name)
 
         else:
@@ -240,7 +240,7 @@ class Objective:
         objective_func = lambda act_dict: sum(
             [objective(act_dict) for objective in objectives]
         )
-        name = ", ".join([objective.name for objective in objectives])
+        name = " + ".join([objective.name for objective in objectives])
         return Objective(objective_func, name)
 
     def __sub__(self, other: Union["Objective", float, int]) -> "Objective":
@@ -249,13 +249,13 @@ class Objective:
                 f"Subtracting Objective: {other.name} from Objective: {self.name}"
             )
             objective_func = lambda act_dict: self(act_dict) - other(act_dict)
-            name = f"{self.name}, {other.name}"
+            name = f"{self.name}_sub_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Subtracting value: {other} from Objective: {self.name}")
             objective_func = lambda act_dict: self(act_dict) - other
-            name = f"{self.name} - {other}"
+            name = f"{self.name}_sub_{other}"
             return Objective(objective_func, name)
 
         else:
@@ -273,13 +273,13 @@ class Objective:
                 f"Multiplying Objective: {self.name} with Objective: {other.name}"
             )
             objective_func = lambda act_dict: self(act_dict) * other(act_dict)
-            name = f"{self.name}, {other.name}"
+            name = f"{self.name}_mul_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Multiplying Objective: {self.name} with value: {other}")
             objective_func = lambda act_dict: self(act_dict) * other
-            name = f"{self.name} * {other}"
+            name = f"{other}{self.name}"
             return Objective(objective_func, name)
 
         else:
@@ -289,13 +289,13 @@ class Objective:
         if isinstance(other, Objective):
             logger.debug(f"Dividing Objective: {self.name} by Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) / other(act_dict)
-            name = f"{self.name}, {other.name}"
+            name = f"{self.name}_div_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Dividing Objective: {self.name} by value: {other}")
             objective_func = lambda act_dict: self(act_dict) / other
-            name = f"{self.name} / {other}"
+            name = f"{self.name}_div_{other}"
             return Objective(objective_func, name)
 
         else:
@@ -347,14 +347,16 @@ def objective_wrapper(func: Callable[..., Callable[[AD], float]]):
     def wrapper(*args, **kwargs):
         logger.debug(f"Wrapping function: {func.__name__}")
         objective_func = func(*args, **kwargs)
-        objective_name = func.__name__
+        # get obj_str from args
+        objective_name = kwargs.get("obj_str", "")
+        objective_name = objective_name if objective_name else func.__name__
         return Objective(objective_func, objective_name)
 
     return wrapper
 
 
 @objective_wrapper
-def channel_obj(layer, channel, loss_type="mean"):
+def channel_obj(layer, channel, loss_type="mean", obj_str=""):
     logger.info(
         f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}"
     )
@@ -366,7 +368,7 @@ def channel_obj(layer, channel, loss_type="mean"):
 
 
 @objective_wrapper
-def layer_obj(layer, loss_type="mean"):
+def layer_obj(layer, loss_type="mean", obj_str=""):
     logger.info(f"Creating layer objective for layer: {layer}, loss_type: {loss_type}")
 
     def get_activation_loss(act_dict):
@@ -376,7 +378,7 @@ def layer_obj(layer, loss_type="mean"):
 
 
 @objective_wrapper
-def neuron_obj(layer, channel, height=None, width=None, loss_type="mean"):
+def neuron_obj(layer, channel, height=None, width=None, loss_type="mean", obj_str=""):
     logger.info(
         f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
     )

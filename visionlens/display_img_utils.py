@@ -1,35 +1,48 @@
 import IPython
 import einops
 import numpy as np
-from PIL import Image
 from typing import List, Optional
 import base64
 from io import BytesIO
 
-from visionlens.utils import A
+import torch
+from torchvision.transforms.functional import to_pil_image
+
+from visionlens.utils import T, create_logger
+
+logger = create_logger(__name__)
 
 
-def convert_arr_to_base64_str(arr: A, format="PNG", quality: int = 80) -> str:
-    """Convert a NumPy array image to a base64 string."""
+def tensor_to_img_array(tensor: T) -> T:
+    tensor = tensor.cpu().detach()
 
-    # if tensor is 4D (1, C, H, W), convert to 3D (C, H, W)
-
-    if len(arr.shape) == 4:
-        arr = einops.rearrange(arr, "1 c h w -> h w c")
-
-    # if pytorch tensor, convert to numpy array
-    if "torch" in str(type(arr)):
-        arr = arr.cpu().detach().numpy()
+    if (len(tensor.shape) == 4) & (tensor.shape[0] == 1):  # (1 C H W)
+        logger.warning(
+            "Converting 4D tensor to 3D. If the tensor is a batch of images, "
+            "use `display_images_in_table` instead."
+        )
+        tensor = einops.rearrange(tensor, "1 c h w -> c h w")
 
     # if the image is in the range [0, 1], convert to [0, 255]
-    if (arr.max() <= 1) & (arr.min() >= 0):
-        arr = arr * 255
+    if (tensor.max() <= 1) & (tensor.min() >= 0):
+        logger.info("Converting image from [0, 1] to [0, 255].")
+        tensor = tensor * 255
 
     # if the image is in the range [-1, 1], convert to [0, 255]
-    if (arr.max() <= 1) & (arr.min() >= -1):
-        arr = (arr + 1) * 127.5
+    if (tensor.max() <= 1) & (tensor.min() >= -1):
+        logger.info("Converting image from [-1, 1] to [0, 255].")
+        tensor = (tensor + 1) * 127.5
 
-    img = Image.fromarray(arr.astype(np.uint8))
+    img = to_pil_image(tensor.to(torch.uint8), mode="RGB")
+
+    return img
+
+
+def convert_arr_to_base64_str(arr: T, format="PNG", quality: int = 80) -> str:
+    """Convert a NumPy array image to a base64 string."""
+
+    img = tensor_to_img_array(arr)
+
     buffered = BytesIO()
     img.save(buffered, format=format, quality=quality)
     img_str = base64.b64encode(buffered.getvalue()).decode("ascii")
@@ -37,7 +50,7 @@ def convert_arr_to_base64_str(arr: A, format="PNG", quality: int = 80) -> str:
 
 
 def _single_image_html(
-    image: A,
+    image: T,
     width: Optional[int] = None,
     fmt: str = "png",
     quality: int = 85,
@@ -49,7 +62,7 @@ def _single_image_html(
 
 
 def image_to_html_table_cell(
-    image: np.ndarray,
+    image: T,
     width: Optional[int] = None,
     title: Optional[str] = "",
     margin: Optional[int] = 5,
@@ -65,7 +78,7 @@ def image_to_html_table_cell(
 
 
 def create_image_table(
-    images: List[np.ndarray],
+    images: List[T],
     labels: Optional[List[str]] = None,
     width: Optional[int] = None,
     n_rows: int = None,
@@ -103,7 +116,7 @@ def create_image_table(
 
 
 def display_images_in_table(
-    images: List[np.ndarray],
+    images: List[T],
     labels: Optional[List[str]] = None,
     width: Optional[int] = None,
     n_rows: int = 1,
@@ -118,3 +131,35 @@ def display_images_in_table(
     html_str += "</div>"
 
     IPython.display.display(IPython.display.HTML(html_str))
+
+
+def display_image(
+    image: T,
+    title: Optional[str] = "",
+    width: Optional[int] = None,
+    fmt: str = "png",
+    quality: int = 85,
+) -> None:
+    """Display a single image in a Jupyter notebook."""
+
+    html_str = _single_image_html(image, width, fmt, quality)
+    if title:
+        html_str += f"<h4>{title}</h4>"
+
+    IPython.display.display(IPython.display.HTML(html_str))
+
+
+def save_image(
+    image: T,
+    file_path: str,
+    fmt: str = "PNG",
+    quality: int = 85,
+) -> None:
+    """Save an image to a file."""
+
+    img = tensor_to_img_array(image)
+
+    img = to_pil_image(img.to(torch.uint8), mode="RGB")
+    logger.info(f"Saving image to {file_path}.")
+
+    img.save(file_path, format=fmt, quality=quality)
