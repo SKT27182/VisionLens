@@ -1,8 +1,12 @@
+from typing import Callable, List
 import torch
+from torchvision.transforms import functional as F
+from torchvision.transforms import Normalize
 import einops
 import numpy as np
 
-from visionlens.utils import device, create_logger
+
+from visionlens.utils import T, device, create_logger
 
 logger = create_logger(__name__)
 
@@ -17,15 +21,15 @@ color_correlation_normalized = color_correlation_svd_sqrt / max_norm_svd_sqrt
 color_mean = [0.48, 0.46, 0.41]
 
 
-
-
 def _linear_decorrelate_color(tensor):
     t_permute = einops.rearrange(tensor, "b c h w -> b h w c")
     t_permute = torch.matmul(
         t_permute, torch.tensor(color_correlation_normalized.T).to(t_permute.device)
     )
     tensor = einops.rearrange(t_permute, "b h w c -> b c h w")
-    logger.debug(f"Returning decorrelated {tensor.dtype} tensor of shape {tensor.shape}")
+    logger.debug(
+        f"Returning decorrelated {tensor.dtype} tensor of shape {tensor.shape}"
+    )
     return tensor
 
 
@@ -122,36 +126,29 @@ def image(
 
 
 ###### transforms
-
-
-def jitter(d):
-    assert d > 1, "Jitter parameter d must be more than 1, currently {}".format(d)
-
-    def inner(image_t):
-        dx = np.random.choice(d)
-        dy = np.random.choice(d)
-        return translate(image_t, torch.tensor([[dx, dy]]).float().to(image_t.device))
-
-    return inner
-
-
-# write the above function using einops with docstring without using translate function
-
-def jitter(d):
+def compose(transforms: List[Callable[[T], T]]) -> Callable[[T], T]:
     """
-    Randomly translate an image by dx, dy pixels.
-    
+    Composes a list of transforms into a single transform function.
+
     Args:
-        d (int): Maximum translation in x and y directions.
-    
-    Returns:
-        Callable: A function that takes an image tensor and returns a translated image tensor.
-    """
-    assert d > 1, "Jitter parameter d must be more than 1, currently {}".format(d)
+        transforms (list): A list of transform functions.
 
-    def inner(image_t):
-        dx = np.random.choice(d)
-        dy = np.random.choice(d)
-        return einops.rearrange(image_t, "b c h w -> b c (h dx) (w dy)", dx=dx, dy=dy)
-    
+    Returns:
+        function: A composed transform function that applies each transform in the given order.
+
+    Example:
+        transforms = [transform1, transform2, transform3]
+        composed_transform = compose(transforms)
+        result = composed_transform(input_image)
+    """
+
+    def inner(x):
+
+        if not transforms:
+            return x
+        for transform in transforms:
+            x = transform(x)
+        return x
+
     return inner
+

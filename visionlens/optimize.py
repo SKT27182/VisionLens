@@ -5,9 +5,9 @@ from IPython.display import clear_output
 
 from tqdm.auto import tqdm
 
-from typing import Callable
+from typing import Callable, List, Union
 
-from visionlens.images import pixel_image
+from visionlens.images import compose, normalize, pixel_image, STANDARD_TRANSFORMS, preprocess_inceptionv1
 from visionlens.objective import Objective, MultiHook, AD
 from visionlens.utils import T, M, A, device, create_logger
 from visionlens.display_img_utils import display_images_in_table
@@ -21,9 +21,11 @@ class Visualizer:
         self,
         model: M,
         objective_f: Callable[[AD], float] | str,
-        model_hooks: AD = None,
-        param_f: Callable[[], T] = None,
+        model_hooks: Union[AD, None] = None,
+        param_f: List[Callable[[T], T]] = None,
         loss_type: str | Callable[[T], float] = "mean",
+        transforms: Union[Callable[[T], T], None] = None,
+        pre_process: bool = True,
     ):
 
         if isinstance(objective_f, str):
@@ -49,6 +51,20 @@ class Visualizer:
         else:
             self.model_hooks = model_hooks
 
+        if transforms is None:
+            transforms = STANDARD_TRANSFORMS.copy()
+
+        else:
+            transforms = transforms.copy()
+
+        if pre_process:
+            if self.model._get_name() == "InceptionV1":
+                transforms.append(preprocess_inceptionv1())
+            else:
+                transforms.append(normalize())
+
+        self.transform_f = compose(transforms)
+
     def _single_forward_loop(
         self,
         model: M,
@@ -71,7 +87,7 @@ class Visualizer:
         model.zero_grad()
         optimizer.zero_grad()
 
-        model(img_f())
+        self.transform_f(model(img_f()))
 
         loss = self.objective_f(self.model_hooks)
 
@@ -85,7 +101,6 @@ class Visualizer:
         self,
         lr: float = 5e-2,
         freq: int = 10,
-        transforms: Callable[[T], T] = None,
         progress: bool = True,
         show_last: bool = True,
         epochs: int = 100,

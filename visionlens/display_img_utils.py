@@ -18,13 +18,12 @@ def tensor_to_img_array(tensor: T) -> T:
 
     if (len(tensor.shape) == 4) & (tensor.shape[0] == 1):  # (1 C H W)
         logger.warning(
-            "Converting 4D tensor to 3D. If the tensor is a batch of images, "
-            "use `display_images_in_table` instead."
+            f"Converting {tensor.shape} tensor to 3D tensor by removing first dimension."
         )
         tensor = einops.rearrange(tensor, "1 c h w -> c h w")
 
 
-    img = to_pil_image(tensor.to(torch.uint8), mode="RGB")
+    img = to_pil_image(tensor, mode="RGB")
 
     return img
 
