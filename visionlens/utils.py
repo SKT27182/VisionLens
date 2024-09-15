@@ -1,10 +1,9 @@
 from collections import OrderedDict
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 
-from typing import List, Literal, Optional, Tuple, Dict
+from typing import Literal, Dict
 
 from copy import deepcopy
 import logging
@@ -14,7 +13,6 @@ from logging import Logger
 M = nn.Module
 T = torch.Tensor
 A = np.ndarray
-AD = Dict[str, T]  # Activation Dictionary Type for hooks [layer_name: activation]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -204,7 +202,7 @@ def get_optimizer(optimizer: str, model: M, lr: float):
         raise ValueError(f"Optimizer {optimizer} not supported")
 
 
-def get_model_layerxs(model, getLayerRepr=False):
+def get_model_layers(model, getLayerRepr=False):
     """
     If getLayerRepr is True, return a OrderedDict of layer names, layer representation string pair.
     If it's False, just return a list of layer names

@@ -1,8 +1,8 @@
 import IPython
+import einops
 import numpy as np
 from PIL import Image
-from typing import List, Optional, Tuple
-from IPython.display import display, HTML
+from typing import List, Optional
 import base64
 from io import BytesIO
 
@@ -11,6 +11,15 @@ from visionlens.utils import A
 
 def convert_arr_to_base64_str(arr: A, format="PNG", quality: int = 80) -> str:
     """Convert a NumPy array image to a base64 string."""
+
+    # if tensor is 4D (1, C, H, W), convert to 3D (C, H, W)
+
+    if len(arr.shape) == 4:
+        arr = einops.rearrange(arr, "1 c h w -> h w c")
+
+    # if pytorch tensor, convert to numpy array
+    if "torch" in str(type(arr)):
+        arr = arr.cpu().detach().numpy()
 
     # if the image is in the range [0, 1], convert to [0, 255]
     if (arr.max() <= 1) & (arr.min() >= 0):

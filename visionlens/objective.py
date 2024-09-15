@@ -1,21 +1,16 @@
 from collections import OrderedDict
-from functools import wraps
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
+from functools import partial, wraps
 
-from typing import List, Tuple, Dict, Callable, Union
+from typing import Any, List, Dict, Callable, Union
 
-from visionlens.utils import T, M, A, create_logger
-from decorator import decorator
-
-from visionlens.utils import T, M, A, AD, device
+from visionlens.utils import T, M, create_logger
 
 # IMAGE_SHAPE -> (B, C, H, W)
 # ACTIVATION_SHAPE -> (B, C, H, W)
 
 logger = create_logger(__name__)
+
+AD = Callable[[str], "Hook"]  # Activation Dictionary Type for hooks [layer_name: Hook]
 
 
 class Hook:
@@ -33,7 +28,9 @@ class Hook:
         self.module = module
         self.features = None
 
-    def __call__(self, ):
+    def __call__(
+        self,
+    ):
         return self.features
 
     def hook_fn(self, module: M, input: T, output: T):
@@ -58,6 +55,81 @@ class Hook:
 
         self.hook.remove()
 
+
+class MultiHook:
+
+    def __init__(
+        self, model: M, layers: Union[List[str], str] = None, exact_match: bool = False
+    ) -> AD:
+        """
+        MultiHook class to register
+
+        Args:
+            model: M, The model on which the hooks are to be registered.
+            layers: List[str] | str, The list of layers on which the hooks are to be registered.
+            exact_match: bool, Whether to match the layer names exactly.
+
+        Returns:
+            AD: The dictionary containing the layer name and the hook instance.
+        """
+        if isinstance(layers, str):
+            layers = [layers]
+
+        logger.info(
+            f"Registering hooks for model: {model.__class__.__name__} with layers: {layers} and exact_match: {exact_match}"
+        )
+        self.hooks_dict = {}
+
+        for name, module in model.named_modules():
+
+            is_valid_layer = (
+                any([layer in name for layer in layers]) if layers else False
+            )
+
+            if exact_match:
+                is_valid_layer = (
+                    any([layer == name for layer in layers]) if layers else False
+                )
+
+            if layers is None or is_valid_layer:
+
+                logger.debug(f"Registering hook on layer {name}")
+
+                self.hooks_dict[name] = Hook(module)
+
+    def __call__(self, layer: str) -> T:
+        """
+        Get the features from the layer.
+
+        Args:
+            layer: str, The layer name from which the features are to be extracted.
+
+        Returns:
+            T: The features from the layer.
+        """
+
+        if layer == "labels":
+            return list(self.hooks_dict.values())[-1]()
+        else:
+            assert (
+                layer in self.hooks_dict
+            ), f"Invalid layer {layer}. Get the list of layers using `visionlens.utils.get_model_layers(model)`"
+
+            output = self.hooks_dict[layer]()
+
+            assert (
+                output is not None
+            ), f"Features for layer {layer} not found. Make sure the model is in evaluation mode and at least one forward pass is made."
+
+        return output
+
+    def close(self):
+        """
+        Close all the hooks.
+        """
+        for hook in self.hooks_dict.values():
+            hook.close()
+        
     @staticmethod
     def close_all_hooks(model: M):
         """
@@ -79,82 +151,6 @@ class Hook:
                     hook.remove()
                 module.backward_hooks = OrderedDict()
 
-    @classmethod
-    def regester_hooks(
-        cls, model: M, layers: Union[List[str], str] = None, exact_match: bool = False
-    ) -> Dict[str, "Hook"]:
-        """
-        Register hooks on the model.
-
-        Args:
-            model: M, The model on which the hooks are to be registered.
-            layers: List[str], The list of layers on which the hooks are to be registered. Default is None.
-                                - If None, hooks are registered on all the layers. otherwise,
-                                only on the specified layers which have that keyword in their name.
-
-        Returns:
-            Dict[str, Hook]: A dictionary containing the layer name and the hook instance.
-        """
-        if isinstance(layers, str):
-            layers = [layers]
-
-        logger.info(
-            f"Registering hooks for model: {model.__class__.__name__} with layers: {layers} and exact_match: {exact_match}"
-        )
-        hooks_dict = {}
-
-        for name, module in model.named_modules():
-
-            is_valid_layer = (
-                any([layer in name for layer in layers]) if layers else False
-            )
-
-            if exact_match:
-                is_valid_layer = (
-                    any([layer == name for layer in layers]) if layers else False
-                )
-
-            if layers is None or is_valid_layer:
-
-                logger.debug(f"Registering hook on {name}")
-
-                hooks_dict[name] = cls(
-                    module
-                )
-
-        return hooks_dict
-
-    @staticmethod
-    def get_features(hooks_dict: Dict[str, "Hook"], layer: str = None) -> T:
-        """
-        Get the features from the layer.
-
-        Args:
-            hooks_dict: Dict[str, Hook], The dictionary containing the layer name and the hook instance.
-            layer: str, The layer name from which the features are to be extracted.
-
-        Returns:
-            T: The features from the layer.
-        """
-        logger.debug(f"Getting features from layer: {layer}")
-
-        # if layer == 'input':
-        #     return hooks_dict['input'].features
-        if layer == "labels":
-            return list(hooks_dict.values())[-1].features
-        else:
-            assert (
-                layer in hooks_dict
-            ), f"Invalid layer {layer}. Get the list of layers using `visionlens.utils.get_model_layerxs(model)`"
-
-            output = hooks_dict[layer].features
-
-            assert (
-                output is not None
-            ), f"Features for layer {layer} not found. Make sure the model is in evaluation mode."
-
-            return output
-
 
 class Objective:
 
@@ -163,7 +159,7 @@ class Objective:
         self.objective_func = objective_func
         self.name = name
 
-    def __call__(self, activation_dic: 'Hook') -> float:
+    def __call__(self, activation_dic: AD) -> float:
         logger.debug(f"Calling Objective: {self.name}")
         return self.objective_func(activation_dic)
 
@@ -185,7 +181,7 @@ class Objective:
 
                 Objective: An instance of the Objective class.
         """
-        logger.debug(
+        logger.info(
             f"Creating Objective from string: {obj_str} with loss_type: {loss_type}"
         )
         obj_str = obj_str.lower()
@@ -197,12 +193,21 @@ class Objective:
         width = int(obj_parts[3]) if len(obj_parts) > 3 else None
 
         if channel is not None and (height is not None or width is not None):
+            logger.debug(
+                f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
+            )
             return neuron_obj(layer, channel, height, width, loss_type)
 
         elif channel is not None:
+            logger.debug(
+                f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}"
+            )
             return channel_obj(layer, channel, loss_type)
 
         else:
+            logger.debug(
+                f"Creating layer objective for layer: {layer}, loss_type: {loss_type}"
+            )
             return layer_obj(layer, loss_type)
 
     def __str__(self):
@@ -355,41 +360,41 @@ def channel_obj(layer, channel, loss_type="mean"):
     )
 
     def get_activation_loss(act_dict):
-        return -activation_loss(act_dict[layer]()[:, channel], loss_type)
+        return -activation_loss(act_dict(layer)[:, channel], loss_type)
 
     return get_activation_loss
 
 
 @objective_wrapper
 def layer_obj(layer, loss_type="mean"):
-    logger.debug(f"Creating layer objective for layer: {layer}, loss_type: {loss_type}")
+    logger.info(f"Creating layer objective for layer: {layer}, loss_type: {loss_type}")
 
     def get_activation_loss(act_dict):
-        return -activation_loss(act_dict[layer], loss_type)
+        return -activation_loss(act_dict(layer), loss_type)
 
     return get_activation_loss
 
 
 @objective_wrapper
 def neuron_obj(layer, channel, height=None, width=None, loss_type="mean"):
-    logger.debug(
+    logger.info(
         f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
     )
 
     def get_activation_loss(act_dict):
         if height is None and width is None:
             # Both height and width are None, default to half of the spatial dimensions
-            height = act_dict[layer].shape[2] // 2
-            width = act_dict[layer].shape[3] // 2
-            selected_activations = act_dict[layer][:, channel, height, width]
+            height = act_dict(layer).shape[2] // 2
+            width = act_dict(layer).shape[3] // 2
+            selected_activations = act_dict(layer)[:, channel, height, width]
 
         elif height is not None and width is None:
             # Width is None, select the entire width dimension
-            selected_activations = act_dict[layer][:, channel, height, :]
+            selected_activations = act_dict(layer)[:, channel, height, :]
 
         elif height is None and width is not None:
             # Height is None, select the entire height dimension
-            selected_activations = act_dict[layer][:, channel, :, width]
+            selected_activations = act_dict(layer)[:, channel, :, width]
 
         return -activation_loss(selected_activations, loss_type)
 
