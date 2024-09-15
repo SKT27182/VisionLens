@@ -23,15 +23,6 @@ def tensor_to_img_array(tensor: T) -> T:
         )
         tensor = einops.rearrange(tensor, "1 c h w -> c h w")
 
-    # if the image is in the range [0, 1], convert to [0, 255]
-    if (tensor.max() <= 1) & (tensor.min() >= 0):
-        logger.info("Converting image from [0, 1] to [0, 255].")
-        tensor = tensor * 255
-
-    # if the image is in the range [-1, 1], convert to [0, 255]
-    if (tensor.max() <= 1) & (tensor.min() >= -1):
-        logger.info("Converting image from [-1, 1] to [0, 255].")
-        tensor = (tensor + 1) * 127.5
 
     img = to_pil_image(tensor.to(torch.uint8), mode="RGB")
 
