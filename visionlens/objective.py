@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from functools import partial, wraps
 
-from typing import Any, List, Dict, Callable, Union
+from typing import Any, List, Dict, Callable, Tuple, Union
 
 from visionlens.utils import T, M, create_logger
 
@@ -25,8 +25,8 @@ class Hook:
         """
         logger.debug(f"Initializing Hook for module: {module.__class__.__name__}")
         self.hook = module.register_forward_hook(self.hook_fn)
-        self.module = module
-        self.features = None
+        self.module : M = module
+        self.features : Union[T, None] = None
 
     def __call__(
         self,
@@ -154,24 +154,24 @@ class MultiHook:
 
 class Objective:
 
-    def __init__(self, objective_func: Callable[[AD], float], name: str):
+    def __init__(self, objective_func: Callable[[AD], T], name: str):
         logger.debug(f"Initializing Objective with name: {name}")
         self.objective_func = objective_func
         self.name = name
 
-    def __call__(self, activation_dic: AD) -> float:
+    def __call__(self, activation_dic: AD) -> T:
         logger.debug(f"Calling Objective: {self.name}")
         return self.objective_func(activation_dic)
 
     @staticmethod
     def create_objective(
         obj_str: str,
-        loss_type: Union[str, Callable[[T], float]] = "mean",
+        loss_type: Union[str, Callable[[T], T]] = "mean",
     ) -> "Objective":
         """
         obj_str: str, It contains the layer_name:channel:height:width, where channel, height, width are optional.
 
-        loss_type: str | Callable[[T], float], The type of loss to be used. Default is "mean".
+        loss_type: str | Callable[[T], T], The type of loss to be used. Default is "mean".
 
         Example:
 
@@ -233,7 +233,8 @@ class Objective:
             raise ValueError(f"Unsupported type {type(other)} for addition")
 
     @staticmethod
-    def sum(objectives: List["Objective"]) -> "Objective":
+    def sum(objectives: Union[List["Objective"], Tuple["Objective", ...]]) -> "Objective":
+
         logger.debug(
             f"Summing Objectives: {[objective.name for objective in objectives]}"
         )
@@ -312,15 +313,15 @@ class Objective:
 
     def __eq__(self, other: "Objective") -> bool:
         name_eq = self.name == other.name
-        func_eq = self.objective_func == other.objective_func
-        return name_eq and func_eq
+        # func_eq = self.objective_func == other.objective_func
+        return name_eq #and func_eq
 
     def __ne__(self, other: "Objective") -> bool:
         return not self.__eq__(other)
 
 
 def activation_loss(
-    actvations: T, loss_type: Union[str, Callable[[T], float]] = "mean"
+    actvations: T, loss_type: Union[str, Callable[[T], T]] = "mean"
 ) -> float:
     logger.debug(f"Calculating activation loss with loss_type: {loss_type}")
     loss_dict = {

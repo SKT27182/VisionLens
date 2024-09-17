@@ -5,9 +5,15 @@ from IPython.display import clear_output
 
 from tqdm.auto import tqdm
 
-from typing import Callable, List, Union
+from typing import Callable, List, Tuple, Union
 
-from visionlens.images import compose, normalize, pixel_image, STANDARD_TRANSFORMS, preprocess_inceptionv1
+from visionlens.images import (
+    compose,
+    normalize,
+    pixel_image,
+    STANDARD_TRANSFORMS,
+    preprocess_inceptionv1,
+)
 from visionlens.objective import Objective, MultiHook, AD
 from visionlens.utils import T, M, A, device, create_logger
 from visionlens.display_img_utils import display_images_in_table
@@ -20,11 +26,13 @@ class Visualizer:
     def __init__(
         self,
         model: M,
-        objective_f: Callable[[AD], float] | str,
-        model_hooks: Union[AD, None] = None,
-        param_f: List[Callable[[T], T]] = None,
-        loss_type: str | Callable[[T], float] = "mean",
-        transforms: Union[Callable[[T], T], None] = None,
+        objective_f: Callable[[AD], T] | str,
+        model_hooks: Union[AD, MultiHook, None] = None,
+        param_f: Union[
+            Callable[[], Tuple[List[T], Callable[[], T]]], None
+        ] = None,
+        loss_type: str | Callable[[T], T] = "mean",
+        transforms: Union[List[Callable[[T], T]], None] = None,
         pre_process: bool = True,
     ):
 
@@ -47,7 +55,7 @@ class Visualizer:
 
         if model_hooks is None:
             logger.debug("Creating model hooks from model")
-            self.model_hooks: AD = MultiHook(model)
+            self.model_hooks = MultiHook(model)
         else:
             self.model_hooks = model_hooks
 
@@ -70,7 +78,7 @@ class Visualizer:
         model: M,
         optimizer: torch.optim.Optimizer,
         img_f: Callable[[], T],
-    ):
+    ) -> float:
         """Forward pass through the
         model and return the output tensor.
 
@@ -90,6 +98,8 @@ class Visualizer:
         model(self.transform_f(img_f()))
 
         loss = self.objective_f(self.model_hooks)
+
+        logger.info(f"Loss: {loss.item()}, type: {type(loss)}")
 
         loss.backward()
 
@@ -116,6 +126,8 @@ class Visualizer:
         """
 
         params, img_f = self.param_f()
+
+        print(type(params))
 
         optimizer = torch.optim.Adam(params, lr=lr)
 

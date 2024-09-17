@@ -1,9 +1,10 @@
 import IPython
 import einops
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Union
 import base64
 from io import BytesIO
+from PIL import Image
 
 import torch
 from torchvision.transforms.functional import to_pil_image
@@ -13,7 +14,7 @@ from visionlens.utils import T, create_logger
 logger = create_logger(__name__)
 
 
-def tensor_to_img_array(tensor: T) -> T:
+def tensor_to_img_array(tensor: T) -> Image:
     tensor = tensor.cpu().detach()
 
     if (len(tensor.shape) == 4) & (tensor.shape[0] == 1):  # (1 C H W)
@@ -71,7 +72,7 @@ def create_image_table(
     images: List[T],
     labels: Optional[List[str]] = None,
     width: Optional[int] = None,
-    n_rows: int = None,
+    n_rows: Union[int, None] = None,
     margin: Optional[int] = 5,
 ) -> str:
     """Create an HTML table of images."""
