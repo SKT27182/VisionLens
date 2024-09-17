@@ -87,7 +87,7 @@ class Visualizer:
         model.zero_grad()
         optimizer.zero_grad()
 
-        self.transform_f(model(img_f()))
+        model(self.transform_f(img_f()))
 
         loss = self.objective_f(self.model_hooks)
 
@@ -99,11 +99,11 @@ class Visualizer:
 
     def visualize(
         self,
-        lr: float = 5e-2,
+        lr: float = 1e-1,
         freq: int = 10,
         progress: bool = True,
         show_last: bool = True,
-        epochs: int = 100,
+        epochs: int = 200,
     ):
         """Visualize the model output by optimizing the input image.
 
