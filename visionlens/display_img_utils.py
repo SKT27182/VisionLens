@@ -59,6 +59,7 @@ def image_to_html_table_cell(
     margin: Optional[int] = 5,
 ) -> str:
     """Create an HTML table cell with an image."""
+    logger.debug(f"Creating table cell for image of shape {image.shape}.")
     style = f"margin: {margin}px;"
     cell_html = f'<td style="{style}">'
     cell_html += _single_image_html(image, width)
@@ -69,8 +70,8 @@ def image_to_html_table_cell(
 
 
 def create_image_table(
-    images: List[T],
-    labels: Optional[List[str]] = None,
+    images: T,
+    labels: Optional[Union[List[str], str]] = None,
     width: Optional[int] = None,
     n_rows: Union[int, None] = None,
     margin: Optional[int] = 5,
@@ -92,12 +93,20 @@ def create_image_table(
     <table style="border-collapse: collapse;">
     """
 
+    labels = labels[0] if (isinstance(labels, list) & (len(labels) == 1)) else labels
+
     for i in range(n_rows):
         table_html += "<tr>"
         for j in range(n_cols):
             idx = i * n_cols + j
             if idx < len(images):
-                title = labels[idx] if labels else ""
+                logger.debug(f"Creating table cell for image {idx}.")
+                if isinstance(labels, list):
+                    title = labels[idx]
+                elif isinstance(labels, str):
+                    title = f"{labels} {idx + 1}"
+                else:
+                    title = ""
                 table_html += image_to_html_table_cell(
                     images[idx], width, title, margin
                 )
@@ -107,13 +116,15 @@ def create_image_table(
 
 
 def display_images_in_table(
-    images: List[T],
-    labels: Optional[List[str]] = None,
+    images: T,
+    labels: Optional[Union[List[str], str]] = None,
     width: Optional[int] = None,
     n_rows: int = 1,
     margin: Optional[int] = 5,
 ) -> None:
     """Display a list of images in a table format in a Jupyter notebook."""
+
+    logger.info(f"Displaying {images.shape[0]} images in a table.")
 
     html_str = '<div style="display: flex; flex-wrap: wrap;">'
     img_html_str = create_image_table(images, labels, width, n_rows, margin)

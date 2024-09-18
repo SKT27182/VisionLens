@@ -3,6 +3,9 @@ from functools import partial, wraps
 
 from typing import Any, List, Dict, Callable, Tuple, Union
 
+import torch
+import torch.nn.functional as F
+
 from visionlens.utils import T, M, create_logger
 
 # IMAGE_SHAPE -> (B, C, H, W)
@@ -11,7 +14,6 @@ from visionlens.utils import T, M, create_logger
 logger = create_logger(__name__)
 
 AD = Callable[[str], "Hook"]  # Activation Dictionary Type for hooks [layer_name: Hook]
-
 
 class Hook:
 
@@ -352,9 +354,11 @@ def activation_loss(
 
 
 # objective_wrapper, decorator
-def objective_wrapper(func: Callable[..., Callable[[AD], float]]):
+def objective_wrapper(
+    func: Callable[..., Callable[[AD], float]],
+):
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper( * args, **kwargs):
         logger.debug(f"Wrapping function: {func.__name__}")
         objective_func = func(*args, **kwargs)
         # get obj_str from args
@@ -394,29 +398,65 @@ def neuron_obj(layer, channel, height, width, loss_type="mean", obj_str=""):
     )
 
     def get_activation_loss(act_dict):
-        # height = height
-        # width = width
 
         if height is None and width is None:
             # Both height and width are None, default to half of the spatial dimensions
             height_ = act_dict(layer).shape[2] // 2
             width_ = act_dict(layer).shape[3] // 2
+            logger.debug(f"Using default height: {height_} and width: {width_}")
             selected_activations = act_dict(layer)[:, channel, height_, width_]
             
 
         elif height is not None and width is None:
             # Width is None, select the entire width dimension
+            logger.debug(f"Selecting entire width dimension for height: {height }")
             selected_activations = act_dict(layer)[:, channel, height, :]
             
 
         elif height is None and width is not None:
             # Height is None, select the entire height dimension
+            logger.debug(f"Selecting entire height dimension for width: {width}")
             selected_activations = act_dict(layer)[:, channel, :, width]
             
         
         else:
             # Both height and width are not None
+            logger.debug(f"Selecting activation at height: {height} and width: {width}")
             selected_activations = act_dict(layer)[:, channel, height, width]
             
         return -activation_loss(selected_activations, loss_type)
+    return get_activation_loss
+
+
+@objective_wrapper
+def diversity(layer):
+    logger.info(f"Creating diversity objective for layer: {layer}")
+
+    def get_activation_loss(act_dict):
+        activations = act_dict(layer)
+
+        batch, channels, _, _ = activations.shape
+
+        flattened_activations = activations.view(batch, channels, -1)
+        # Calculate the cosine similarity between the activations
+        grams = torch.matmul(
+            flattened_activations, flattened_activations.transpose(1, 2)
+        )
+
+        # Normalize the gram matrix
+        grams = F.normalize(grams, p=2, dim=(1, 2))
+
+        # Calculate the diversity loss
+        diversity_loss = (
+            -sum(
+                [
+                    sum([(grams[i] * grams[j]).sum() for j in range(batch) if j != i])
+                    for i in range(batch)
+                ]
+            )
+            / batch
+        )
+
+        return diversity_loss
+
     return get_activation_loss

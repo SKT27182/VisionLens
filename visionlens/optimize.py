@@ -14,7 +14,7 @@ from visionlens.images import (
     STANDARD_TRANSFORMS,
     preprocess_inceptionv1,
 )
-from visionlens.objective import Objective, MultiHook, AD
+from visionlens.objectives import Objective, MultiHook, AD
 from visionlens.utils import T, M, A, device, create_logger
 from visionlens.display_img_utils import display_images_in_table, save_image
 
@@ -131,7 +131,7 @@ class Visualizer:
 
         optimizer = torch.optim.Adam(params, lr=lr)
 
-        images: List[T] = []
+        images: T = torch.zeros((len(threshold), *img_f().shape), device=device)
 
         losses: List[T] = []
         for epoch in range(epochs):
@@ -139,22 +139,22 @@ class Visualizer:
 
             if epoch % freq == 0:
                 clear_output(wait=True)
-                display_images_in_table([img_f()], ["Current Image"])
+                display_images_in_table(img_f(), ["Current Image"])
 
                 logger.info(f"Epoch {epoch}/{epochs} - Loss: {loss}")
 
             if epoch in threshold:
                 im = img_f()
-                images.append(im)
+                images[threshold.index(epoch)] = im
 
                 if save_images == "threshold":
                     saving_path = f"{save_path}/{self.objective_f.name}_{epoch}.png"
-                    save_image(im, saving_path)
+                    # save_image(im, saving_path)
 
             losses.append(loss)
 
         if show_last:
 
-            display_images_in_table([img_f()], ["Final Image"])
+            display_images_in_table(img_f(), ["Final Image"])
 
         return images
