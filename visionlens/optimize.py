@@ -5,7 +5,7 @@ from IPython.display import clear_output
 
 from tqdm.auto import tqdm
 
-from typing import Callable, List, Tuple, Union
+from typing import Callable, List, Literal, Tuple, Union
 
 from visionlens.images import (
     compose,
@@ -16,7 +16,7 @@ from visionlens.images import (
 )
 from visionlens.objective import Objective, MultiHook, AD
 from visionlens.utils import T, M, A, device, create_logger
-from visionlens.display_img_utils import display_images_in_table
+from visionlens.display_img_utils import display_images_in_table, save_image
 
 logger = create_logger(__name__)
 
@@ -110,41 +110,51 @@ class Visualizer:
     def visualize(
         self,
         lr: float = 1e-1,
-        freq: int = 10,
-        progress: bool = True,
-        show_last: bool = True,
         epochs: int = 200,
+        freq: int = 10,
+        threshold: Tuple[int] = (512,),
+        save_images: Literal['last', 'threshold', None] = None,
+        save_path: str = "images/",
+        show_last: bool = True,
     ):
         """Visualize the model output by optimizing the input image.
 
         Args:
             lr (float, optional): Learning rate for the optimizer. Defaults to 5e-2.
             freq (int, optional): Frequency to display the image. Defaults to 10.
-            progress (bool, optional): Show progress bar. Defaults to True.
+            threshold (Tuple[int], optional): Epochs to save the image. Defaults to (512,).
             show_last (bool, optional): Show the final image. Defaults to True.
             epochs (int, optional): Number of epochs to run. Defaults to 100.
         """
 
         params, img_f = self.param_f()
 
-        print(type(params))
-
         optimizer = torch.optim.Adam(params, lr=lr)
 
-        losses = []
-        with tqdm(total=epochs, disable=not progress, leave=True) as pbar:
-            for epoch in range(epochs):
-                loss = self._single_forward_loop(self.model, optimizer, img_f)
+        images: List[T] = []
 
-                if epoch % freq == 0:
-                    clear_output(wait=True)
-                    display_images_in_table([img_f()], ["Current Image"])
+        losses: List[T] = []
+        for epoch in range(epochs):
+            loss = self._single_forward_loop(self.model, optimizer, img_f)
 
-                    pbar.write(f"Epoch {epoch}/{epochs} - Loss: {loss}")
+            if epoch % freq == 0:
+                clear_output(wait=True)
+                display_images_in_table([img_f()], ["Current Image"])
 
-                losses.append(loss)
-                pbar.update(1)
+                logger.info(f"Epoch {epoch}/{epochs} - Loss: {loss}")
+
+            if epoch in threshold:
+                im = img_f()
+                images.append(im)
+
+                if save_images == "threshold":
+                    saving_path = f"{save_path}/{self.objective_f.name}_{epoch}.png"
+                    save_image(im, saving_path)
+
+            losses.append(loss)
 
         if show_last:
 
             display_images_in_table([img_f()], ["Final Image"])
+
+        return images

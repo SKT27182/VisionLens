@@ -25,8 +25,8 @@ class Hook:
         """
         logger.debug(f"Initializing Hook for module: {module.__class__.__name__}")
         self.hook = module.register_forward_hook(self.hook_fn)
-        self.module : M = module
-        self.features : Union[T, None] = None
+        self.module: M = module
+        self.features: Union[T, None] = None
 
     def __call__(
         self,
@@ -129,7 +129,7 @@ class MultiHook:
         """
         for hook in self.hooks_dict.values():
             hook.close()
-        
+
     @staticmethod
     def close_all_hooks(model: M):
         """
@@ -196,7 +196,14 @@ class Objective:
             logger.debug(
                 f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
             )
-            return neuron_obj(layer, channel, height, width, loss_type, obj_str=obj_str)
+            return neuron_obj(
+                layer,
+                channel=channel,
+                height=height,
+                width=width,
+                loss_type=loss_type,
+                obj_str=obj_str,
+            )
 
         elif channel is not None:
             logger.debug(
@@ -233,7 +240,9 @@ class Objective:
             raise ValueError(f"Unsupported type {type(other)} for addition")
 
     @staticmethod
-    def sum(objectives: Union[List["Objective"], Tuple["Objective", ...]]) -> "Objective":
+    def sum(
+        objectives: Union[List["Objective"], Tuple["Objective", ...]]
+    ) -> "Objective":
 
         logger.debug(
             f"Summing Objectives: {[objective.name for objective in objectives]}"
@@ -314,7 +323,7 @@ class Objective:
     def __eq__(self, other: "Objective") -> bool:
         name_eq = self.name == other.name
         # func_eq = self.objective_func == other.objective_func
-        return name_eq #and func_eq
+        return name_eq  # and func_eq
 
     def __ne__(self, other: "Objective") -> bool:
         return not self.__eq__(other)
@@ -379,26 +388,35 @@ def layer_obj(layer, loss_type="mean", obj_str=""):
 
 
 @objective_wrapper
-def neuron_obj(layer, channel, height=None, width=None, loss_type="mean", obj_str=""):
+def neuron_obj(layer, channel, height, width, loss_type="mean", obj_str=""):
     logger.info(
         f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
     )
 
     def get_activation_loss(act_dict):
+        # height = height
+        # width = width
+
         if height is None and width is None:
             # Both height and width are None, default to half of the spatial dimensions
-            height = act_dict(layer).shape[2] // 2
-            width = act_dict(layer).shape[3] // 2
-            selected_activations = act_dict(layer)[:, channel, height, width]
+            height_ = act_dict(layer).shape[2] // 2
+            width_ = act_dict(layer).shape[3] // 2
+            selected_activations = act_dict(layer)[:, channel, height_, width_]
+            
 
         elif height is not None and width is None:
             # Width is None, select the entire width dimension
             selected_activations = act_dict(layer)[:, channel, height, :]
+            
 
         elif height is None and width is not None:
             # Height is None, select the entire height dimension
             selected_activations = act_dict(layer)[:, channel, :, width]
-
+            
+        
+        else:
+            # Both height and width are not None
+            selected_activations = act_dict(layer)[:, channel, height, width]
+            
         return -activation_loss(selected_activations, loss_type)
-
     return get_activation_loss

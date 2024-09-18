@@ -144,13 +144,12 @@ def save_image(
     image: T,
     file_path: str,
     fmt: str = "PNG",
-    quality: int = 85,
+    quality: int = 100,
 ) -> None:
     """Save an image to a file."""
 
     img = tensor_to_img_array(image)
 
-    img = to_pil_image(img.to(torch.uint8), mode="RGB")
     logger.info(f"Saving image to {file_path}.")
 
     img.save(file_path, format=fmt, quality=quality)
