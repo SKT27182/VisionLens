@@ -5,7 +5,7 @@ from IPython.display import clear_output
 
 from tqdm.auto import tqdm
 
-from typing import Callable, List, Literal, Tuple, Union
+from typing import Callable, List, Literal, Optional, Tuple, Union
 
 from visionlens.images import (
     compose,
@@ -27,10 +27,8 @@ class Visualizer:
         self,
         model: M,
         objective_f: Callable[[AD], T] | str,
-        model_hooks: Union[AD, MultiHook, None] = None,
-        param_f: Union[
-            Callable[[], Tuple[List[T], Callable[[], T]]], None
-        ] = None,
+        model_hooks: Optional[Union[AD, MultiHook]] = None,
+        param_f: Union[Callable[[], Tuple[List[T], Callable[[], T]]], None] = None,
         loss_type: str | Callable[[T], T] = "mean",
         transforms: Union[List[Callable[[T], T]], None] = None,
         pre_process: bool = True,
@@ -42,7 +40,8 @@ class Visualizer:
 
         else:
             logger.debug(f"Using custom objective function.")
-            self.objective_f = Objective(objective_f, "custom")
+            name = objective_f.name if hasattr(objective_f, "name") else "custom"
+            self.objective_f = Objective(objective_f, name)
 
         self.model = model.to(device)
 
@@ -57,7 +56,10 @@ class Visualizer:
             logger.debug("Creating model hooks from model")
             self.model_hooks = MultiHook(model)
         else:
-            self.model_hooks = model_hooks
+            if isinstance(model_hooks, (MultiHook, AD)):
+                self.model_hooks = model_hooks
+            else:
+                raise TypeError("model_hooks must be of type MultiHook")
 
         if transforms is None:
             transforms = STANDARD_TRANSFORMS.copy()
@@ -107,13 +109,29 @@ class Visualizer:
 
         return loss.item()
 
+    def _get_image_labels(self, batch_size: int, objective_name: str):
+
+        objective_names = objective_name.split("_")
+
+        objective_names = [name for name in objective_names if "diversity" not in name]
+
+        n_objectives = len(objective_names)
+
+        if n_objectives == batch_size:
+            return objective_names
+        elif n_objectives < batch_size:
+            objective_name = objective_names[0]
+            return [f"{objective_name}_{i}" for i in range(batch_size)]
+        else:
+            return objective_names[:batch_size]
+
     def visualize(
         self,
         lr: float = 1e-1,
         epochs: int = 200,
         freq: int = 10,
         threshold: Tuple[int] = (512,),
-        save_images: Literal['last', 'threshold', None] = None,
+        save_images: Literal["last", "threshold", None] = None,
         save_path: str = "images/",
         show_last: bool = True,
     ):
@@ -129,32 +147,45 @@ class Visualizer:
 
         params, img_f = self.param_f()
 
+        batch_size = params[0].shape[0]
+        
+        if hasattr(self.objective_f, "name"):
+            logger.debug(f"Objective function name: {self.objective_f.name}")
+            images_labels = self._get_image_labels(batch_size, self.objective_f.name)
+        else:
+            logger.warning("Objective function does not have a name attribute.")
+            images_labels = [f"image_{i}" for i in range(batch_size)]
+
         optimizer = torch.optim.Adam(params, lr=lr)
 
         images: T = torch.zeros((len(threshold), *img_f().shape), device=device)
 
-        losses: List[T] = []
-        for epoch in range(epochs):
-            loss = self._single_forward_loop(self.model, optimizer, img_f)
+        losses: List[float] = []
 
-            if epoch % freq == 0:
-                clear_output(wait=True)
-                display_images_in_table(img_f(), ["Current Image"])
+        try:
+            for epoch in range(epochs):
+                loss = self._single_forward_loop(self.model, optimizer, img_f)
 
-                logger.info(f"Epoch {epoch}/{epochs} - Loss: {loss}")
+                if epoch % freq == 0:
+                    clear_output(wait=True)
 
-            if epoch in threshold:
-                im = img_f()
-                images[threshold.index(epoch)] = im
+                    display_images_in_table(img_f(), images_labels)
 
-                if save_images == "threshold":
-                    saving_path = f"{save_path}/{self.objective_f.name}_{epoch}.png"
-                    # save_image(im, saving_path)
+                    logger.info(f"Epoch {epoch}/{epochs} - Loss: {loss}")
 
-            losses.append(loss)
+                if epoch in threshold:
+                    im = img_f()
+                    images[threshold.index(epoch)] = im
+
+                    if save_images == "threshold":
+                        saving_path = f"{save_path}/{self.objective_f.name}_{epoch}.png"
+                        # save_image(im, saving_path)
+                losses.append(loss)
+        except KeyboardInterrupt:
+            logger.warning("Interrupted by user.")
 
         if show_last:
 
-            display_images_in_table(img_f(), ["Final Image"])
+            display_images_in_table(img_f(), images_labels)
 
         return images

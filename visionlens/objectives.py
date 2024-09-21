@@ -3,10 +3,11 @@ from functools import partial, wraps
 
 from typing import Any, List, Dict, Callable, Tuple, Union
 
+import einops
 import torch
 import torch.nn.functional as F
 
-from visionlens.utils import T, M, create_logger
+from visionlens.utils import T, M, create_logger, get_nth_batch
 
 # IMAGE_SHAPE -> (B, C, H, W)
 # ACTIVATION_SHAPE -> (B, C, H, W)
@@ -14,6 +15,7 @@ from visionlens.utils import T, M, create_logger
 logger = create_logger(__name__)
 
 AD = Callable[[str], "Hook"]  # Activation Dictionary Type for hooks [layer_name: Hook]
+
 
 class Hook:
 
@@ -35,7 +37,7 @@ class Hook:
     ):
         return self.features
 
-    def hook_fn(self, module: M, input: T, output: T):
+    def hook_fn(self, module: M, input: Tuple[Any, ...], output: Any):
         """
         Hook function to be registered on the module.
 
@@ -61,8 +63,11 @@ class Hook:
 class MultiHook:
 
     def __init__(
-        self, model: M, layers: Union[List[str], str] = None, exact_match: bool = False
-    ) -> AD:
+        self,
+        model: M,
+        layers: Union[List[str], str, None] = None,
+        exact_match: bool = False,
+    ):
         """
         MultiHook class to register
 
@@ -143,15 +148,17 @@ class MultiHook:
         logger.debug(f"Closing all hooks for model: {model.__class__.__name__}")
         for module in model.children():
             if len(list(module.children())) > 0:
-                Hook.close_all_hooks(module)
+                MultiHook.close_all_hooks(module)
             if hasattr(module, "forward_hooks"):
-                for hook in module.forward_hooks:
-                    hook.remove()
-                module.forward_hooks = OrderedDict()
+                if isinstance(module.forward_hooks, OrderedDict):
+                    for hook in module.forward_hooks:
+                        hook.remove()
+                # module.forward_hooks = OrderedDict()
             if hasattr(module, "backward_hooks"):
-                for hook in module.backward_hooks:
-                    hook.remove()
-                module.backward_hooks = OrderedDict()
+                if isinstance(module.backward_hooks, OrderedDict):
+                    for hook in module.backward_hooks:
+                        hook.remove()
+                # module.backward_hooks = OrderedDict()
 
 
 class Objective:
@@ -167,28 +174,29 @@ class Objective:
 
     @staticmethod
     def create_objective(
-        obj_str: str,
-        loss_type: Union[str, Callable[[T], T]] = "mean",
+        obj_name: str, loss_type: Union[str, Callable[[T], T]] = "mean", batch=None
     ) -> "Objective":
         """
-        obj_str: str, It contains the layer_name:channel:height:width, where channel, height, width are optional.
+        obj_name: str, It contains the layer_name:channel:height:width, where channel, height, width are optional.
 
         loss_type: str | Callable[[T], T], The type of loss to be used. Default is "mean".
 
         Example:
 
-            obj_str = "conv1:0:10:10" -> This will create an objective to maximize the activation of the 0th channel of the conv1 layer at the 10th row and 10th column
+            obj_name = "conv1:0:10:10" -> This will create an objective to maximize the activation of the 0th channel of the conv1 layer at the 10th row and 10th column
 
         Returns:
 
                 Objective: An instance of the Objective class.
         """
         logger.info(
-            f"Creating Objective from string: {obj_str} with loss_type: {loss_type}"
+            f"Creating Objective from string: {obj_name} with loss_type: {loss_type}"
         )
-        obj_str = obj_str.lower()
+        obj_name = obj_name.lower()
 
-        obj_parts = obj_str.split(":")
+        obj_name = f"{obj_name}-{batch}" if batch is not None else obj_name
+
+        obj_parts = obj_name.split(":")
         layer = obj_parts[0]
         channel = int(obj_parts[1]) if len(obj_parts) > 1 else None
         height = int(obj_parts[2]) if len(obj_parts) > 2 else None
@@ -204,20 +212,20 @@ class Objective:
                 height=height,
                 width=width,
                 loss_type=loss_type,
-                obj_str=obj_str,
+                obj_name=obj_name,
             )
 
         elif channel is not None:
             logger.debug(
-                f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}"
+                f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}, batch: {batch}"
             )
-            return channel_obj(layer, channel, loss_type, obj_str=obj_str)
+            return channel_obj(layer, channel, loss_type, obj_name=obj_name, batch=batch)
 
         else:
             logger.debug(
-                f"Creating layer objective for layer: {layer}, loss_type: {loss_type}"
+                f"Creating layer objective for layer: {layer}, loss_type: {loss_type}, batch: {batch}"
             )
-            return layer_obj(layer, loss_type, obj_str=obj_str)
+            return layer_obj(layer, loss_type, obj_name=obj_name, batch=batch)
 
     def __str__(self):
         return self.name
@@ -229,13 +237,13 @@ class Objective:
         if isinstance(other, Objective):
             logger.debug(f"Adding Objective: {self.name} with Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) + other(act_dict)
-            name = f"{self.name}_add_{other.name}"
+            name = f"{self.name}_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Adding Objective: {self.name} with value: {other}")
             objective_func = lambda act_dict: self(act_dict) + other
-            name = f"{self.name}_add_{other}"
+            name = f"{self.name}+{other}"
             return Objective(objective_func, name)
 
         else:
@@ -252,7 +260,7 @@ class Objective:
         objective_func = lambda act_dict: sum(
             [objective(act_dict) for objective in objectives]
         )
-        name = " + ".join([objective.name for objective in objectives])
+        name = "_".join([objective.name for objective in objectives])
         return Objective(objective_func, name)
 
     def __sub__(self, other: Union["Objective", float, int]) -> "Objective":
@@ -261,13 +269,13 @@ class Objective:
                 f"Subtracting Objective: {other.name} from Objective: {self.name}"
             )
             objective_func = lambda act_dict: self(act_dict) - other(act_dict)
-            name = f"{self.name}_sub_{other.name}"
+            name = f"{self.name}_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Subtracting value: {other} from Objective: {self.name}")
             objective_func = lambda act_dict: self(act_dict) - other
-            name = f"{self.name}_sub_{other}"
+            name = f"{self.name}-{other}"
             return Objective(objective_func, name)
 
         else:
@@ -285,7 +293,7 @@ class Objective:
                 f"Multiplying Objective: {self.name} with Objective: {other.name}"
             )
             objective_func = lambda act_dict: self(act_dict) * other(act_dict)
-            name = f"{self.name}_mul_{other.name}"
+            name = f"{self.name}_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
@@ -301,13 +309,13 @@ class Objective:
         if isinstance(other, Objective):
             logger.debug(f"Dividing Objective: {self.name} by Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) / other(act_dict)
-            name = f"{self.name}_div_{other.name}"
+            name = f"{self.name}_{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Dividing Objective: {self.name} by value: {other}")
             objective_func = lambda act_dict: self(act_dict) / other
-            name = f"{self.name}_div_{other}"
+            name = f"{self.name}/{other}"
             return Objective(objective_func, name)
 
         else:
@@ -322,12 +330,14 @@ class Objective:
     def __rmul__(self, other: Union["Objective", float, int]) -> "Objective":
         return self.__mul__(other)
 
-    def __eq__(self, other: "Objective") -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Objective):
+            return False
         name_eq = self.name == other.name
         # func_eq = self.objective_func == other.objective_func
         return name_eq  # and func_eq
 
-    def __ne__(self, other: "Objective") -> bool:
+    def __ne__(self, other: object) -> bool:
         return not self.__eq__(other)
 
 
@@ -351,6 +361,38 @@ def activation_loss(
 
 
 ###################### Objectives ######################
+# def handle_batch(batch=None):
+
+#     return lambda func: lambda act_dict: func(get_nth_batch(act_dict, batch))
+
+
+def handle_batch(batch=None):
+    """
+    A decorator to handle batch processing for a given function.
+
+    Parameters:
+    batch (int, optional): The batch number to process. If None, the default behavior is applied.
+
+    Returns:
+    function: A decorator that wraps the given function to process the specified batch.
+    """
+
+    def decorator(get_activation_loss):
+        """
+        A decorator to wrap a function that computes activation loss.
+        Args:
+            get_activation_loss (function): A function that computes the activation loss.
+        Returns:
+            function: A wrapped function that takes an activation dictionary and computes the loss for the nth batch.
+        """
+
+        def wrapper(act_dict):
+            nth_batch_act = get_nth_batch(act_dict, batch)
+            return get_activation_loss(nth_batch_act)
+
+        return wrapper
+
+    return decorator
 
 
 # objective_wrapper, decorator
@@ -358,45 +400,56 @@ def objective_wrapper(
     func: Callable[..., Callable[[AD], float]],
 ):
     @wraps(func)
-    def wrapper( * args, **kwargs):
+    def wrapper(*args, **kwargs):
         logger.debug(f"Wrapping function: {func.__name__}")
-        objective_func = func(*args, **kwargs)
-        # get obj_str from args
-        objective_name = kwargs.get("obj_str", "")
-        objective_name = objective_name if objective_name else func.__name__
+        objective_func, objective_name = func(*args, **kwargs)
+        # get obj_name from args
+        # objective_name = kwargs.get("obj_name", func.__name__)
         return Objective(objective_func, objective_name)
 
     return wrapper
 
 
+# objectives
 @objective_wrapper
-def channel_obj(layer, channel, loss_type="mean", obj_str=""):
+def channel_obj(layer, channel, loss_type="mean", obj_name="", batch=None):
     logger.info(
-        f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}"
+        f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}, batch: {batch}"
     )
 
+    obj_name = f"{layer}:{channel}" if not obj_name else obj_name
+
+    @handle_batch(batch)
     def get_activation_loss(act_dict):
         return -activation_loss(act_dict(layer)[:, channel], loss_type)
 
-    return get_activation_loss
+    return get_activation_loss, obj_name
 
 
 @objective_wrapper
-def layer_obj(layer, loss_type="mean", obj_str=""):
-    logger.info(f"Creating layer objective for layer: {layer}, loss_type: {loss_type}")
+def layer_obj(layer, loss_type="mean", obj_name="", batch=None):
+    logger.info(
+        f"Creating layer objective for layer: {layer}, loss_type: {loss_type}, batch: {batch}"
+    )
 
+    obj_name = f"{layer}" if not obj_name else obj_name
+
+    @handle_batch(batch)
     def get_activation_loss(act_dict):
         return -activation_loss(act_dict(layer), loss_type)
 
-    return get_activation_loss
+    return get_activation_loss, obj_name
 
 
 @objective_wrapper
-def neuron_obj(layer, channel, height, width, loss_type="mean", obj_str=""):
+def neuron_obj(layer, channel, height, width, loss_type="mean", obj_name="", batch=None):
     logger.info(
-        f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
+        f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}, batch: {batch}"
     )
 
+    obj_name = f"{layer}:{channel}:{height}:{width}" if not obj_name else obj_name
+
+    @handle_batch(batch)
     def get_activation_loss(act_dict):
 
         if height is None and width is None:
@@ -405,58 +458,80 @@ def neuron_obj(layer, channel, height, width, loss_type="mean", obj_str=""):
             width_ = act_dict(layer).shape[3] // 2
             logger.debug(f"Using default height: {height_} and width: {width_}")
             selected_activations = act_dict(layer)[:, channel, height_, width_]
-            
 
         elif height is not None and width is None:
             # Width is None, select the entire width dimension
             logger.debug(f"Selecting entire width dimension for height: {height }")
             selected_activations = act_dict(layer)[:, channel, height, :]
-            
 
         elif height is None and width is not None:
             # Height is None, select the entire height dimension
             logger.debug(f"Selecting entire height dimension for width: {width}")
             selected_activations = act_dict(layer)[:, channel, :, width]
-            
-        
+
         else:
             # Both height and width are not None
             logger.debug(f"Selecting activation at height: {height} and width: {width}")
             selected_activations = act_dict(layer)[:, channel, height, width]
-            
+
         return -activation_loss(selected_activations, loss_type)
-    return get_activation_loss
+
+    return get_activation_loss, obj_name
 
 
 @objective_wrapper
-def diversity(layer):
-    logger.info(f"Creating diversity objective for layer: {layer}")
+def diversity(layer, batch=None):
+    logger.info(
+        f"Creating diversity objective for layer: {layer}, batch: {batch if batch else 'all'}"
+    )
+
+    obj_name = f"{layer}:diversity" 
 
     def get_activation_loss(act_dict):
         activations = act_dict(layer)
 
-        batch, channels, _, _ = activations.shape
+        if isinstance(batch, int):
+            activations = activations[batch : batch + 1]
+        elif batch is not None:
+            activations = activations[batch]
 
-        flattened_activations = activations.view(batch, channels, -1)
+        batch_size, channels, _, _ = activations.shape
+
+        flattened_activations = einops.rearrange(activations, "b c h w -> b c (h w)")
         # Calculate the cosine similarity between the activations
-        grams = torch.matmul(
-            flattened_activations, flattened_activations.transpose(1, 2)
+        grams = torch.einsum(
+            "bcs,bds->bcd", flattened_activations, flattened_activations
         )
 
-        # Normalize the gram matrix
+        # First we flatten the activations -> (b, c, s), where s -> h * w
+        # then we calculate the cosine similarity between the activations by taking the dot product
+        # of the flattened activations -> (b, c, s) . (b, s, c) -> (b, c, c)
+
+        # Normalize the gram matrix, across the channel dimension,
         grams = F.normalize(grams, p=2, dim=(1, 2))
 
-        # Calculate the diversity loss
-        diversity_loss = (
-            -sum(
-                [
-                    sum([(grams[i] * grams[j]).sum() for j in range(batch) if j != i])
-                    for i in range(batch)
-                ]
-            )
-            / batch
-        )
+        # Calculate the diversity loss, maximizing the diversity between the different t batches
+        # diversity_loss = (
+        #     -sum(
+        #         [
+        #             sum(
+        #                 [
+        #                     (grams[i] * grams[j]).sum()
+        #                     for j in range(batch_size)
+        #                     if j != i
+        #                 ]
+        #             )
+        #             for i in range(batch_size)
+        #         ]
+        #     )
+        #     / batch_size
+        # )
+
+        # Create a mask to ignore cases where m == n
+        mask = torch.eye(batch_size, device=grams.device).bool()
+        # maximize the diversity between the different the batches
+        diversity_loss = - torch.einsum("mij,mij->m", grams, grams).masked_fill(mask, 0).sum() / batch_size
 
         return diversity_loss
 
-    return get_activation_loss
+    return get_activation_loss, obj_name

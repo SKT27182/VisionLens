@@ -225,3 +225,17 @@ def get_model_layers(model, getLayerRepr=False):
 
     get_layers(model)
     return layers
+
+
+def get_nth_batch(activation_dict, batch=None):
+
+    def nth_batch(layer_name):
+
+        activations = activation_dict(layer_name)
+        if isinstance(batch, int):
+            return activations[batch : batch + 1]
+        else:
+            return activations
+
+    return nth_batch
+

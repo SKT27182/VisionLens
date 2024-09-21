@@ -23,7 +23,6 @@ def tensor_to_img_array(tensor: T) -> Image:
         )
         tensor = einops.rearrange(tensor, "1 c h w -> c h w")
 
-
     img = to_pil_image(tensor, mode="RGB")
 
     return img
@@ -58,13 +57,13 @@ def image_to_html_table_cell(
     title: Optional[str] = "",
     margin: Optional[int] = 5,
 ) -> str:
-    """Create an HTML table cell with an image."""
+    """Create an HTML table cell with an image and title above it."""
     logger.debug(f"Creating table cell for image of shape {image.shape}.")
-    style = f"margin: {margin}px;"
+    style = f"margin: {margin}px; text-align: center;"
     cell_html = f'<td style="{style}">'
-    cell_html += _single_image_html(image, width)
     if title:
-        cell_html += f"<h4>{title}</h4>"
+        cell_html += f"<h4 style='margin-bottom: 5px;'>{title}</h4>"
+    cell_html += _single_image_html(image, width)
     cell_html += "</td>"
     return cell_html
 
@@ -93,7 +92,7 @@ def create_image_table(
     <table style="border-collapse: collapse;">
     """
 
-    labels = labels[0] if (isinstance(labels, list) & (len(labels) == 1)) else labels
+    labels = labels[0] if (isinstance(labels, list) and (len(labels) == 1)) else labels
 
     for i in range(n_rows):
         table_html += "<tr>"
