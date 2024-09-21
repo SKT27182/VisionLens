@@ -21,7 +21,7 @@ images = viz.visualize(lr=0.05, freq=10, threshold=(512, 1024, 2048), show_last=
 
 - Here a random image will be optimized to maximize the activation of the `mixed4a:97` channel of the model. `threshold` is the steps at which the image will be saved. `freq` is the frequency at which the image will be displayed. `lr` is the learning rate of the optimization. `show_last` is the flag to show the last image after the optimization is done. For the above example, the output will be like this:
 
-![image](images/mixed4a:97_512.png)
+![image](./images/mixed4a:97_512.png)
 
 ### More Control over Objective Function
 
@@ -42,7 +42,7 @@ images = viz.visualize(lr=0.05, freq=10, threshold=(512, 1024, 2048), show_last=
 
 - Here the objective function is the sum of the activations of the `mixed4a:97` and `mixed4a:180` channels. The output will be like this:
 
-![image](images/mixed4a:97+mixed4a:180_512.png)
+![image](./images/mixed4a:97+mixed4a:180_512.png)
 
 - You can also create a custom objective by using the `Objective` class. It must take the layer as an input and return the activation of that layer. Here is an example:
 
@@ -60,7 +60,7 @@ images = viz.visualize(lr=0.05, freq=10, threshold=(512,), show_last=True)
 
 - Here, first we added the hooks at the `mixed4a` layer. Then we created a custom objective function which takes the hooks as input and returns the activation of a number of mixed4a layer channel 97, at position (5, 7). The output will be like this:
 
-![image](images/mixed4a:97:5:7.png)
+![image](./images/mixed4a:97:5:7.png)
 
 ### Positive and Negative Optimization
 
@@ -83,11 +83,11 @@ display_images_in_table(images[0], ["Positive", "Negative"])
 
 <div style="display: flex; justify-content: space-around;">
   <div style="text-align: center;">
-    <img src="images/mixed4a:41_512_positive.png" alt="Positive" >
+    <img src="./images/mixed4a:41_512_positive.png" alt="Positive" >
     <p>Positive</p>
   </div>
   <div style="text-align: center;">
-    <img src="images/mixed4a:41_512_negative.png" alt="Negative" >
+    <img src="./images/mixed4a:41_512_negative.png" alt="Negative" >
     <p>Negative</p>
   </div>
 </div>
