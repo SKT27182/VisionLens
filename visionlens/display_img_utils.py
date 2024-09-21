@@ -163,3 +163,18 @@ def save_image(
     logger.info(f"Saving image to {file_path}.")
 
     img.save(file_path, format=fmt, quality=quality)
+
+
+def _save_images(
+    images: T,
+    dir_path: str,
+    file_names: Union[List[str], str],
+    fmt: str = "PNG",
+    quality: int = 100,
+) -> None:
+    """Save a list of images to files."""
+
+    for i, img in enumerate(images):
+        file_name = file_names[i] if isinstance(file_names, list) else f"{file_names}_{i}"
+        file_path = f"{dir_path}/{file_name}.{fmt.lower()}"
+        save_image(img, file_path, fmt, quality)

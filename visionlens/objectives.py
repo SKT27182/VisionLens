@@ -194,18 +194,15 @@ class Objective:
         )
         obj_name = obj_name.lower()
 
-        obj_name = f"{obj_name}-{batch}" if batch is not None else obj_name
-
         obj_parts = obj_name.split(":")
         layer = obj_parts[0]
         channel = int(obj_parts[1]) if len(obj_parts) > 1 else None
         height = int(obj_parts[2]) if len(obj_parts) > 2 else None
         width = int(obj_parts[3]) if len(obj_parts) > 3 else None
 
+        obj_name = f"{obj_name}-{batch}" if batch is not None else obj_name
+
         if channel is not None and (height is not None or width is not None):
-            logger.debug(
-                f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}"
-            )
             return neuron_obj(
                 layer,
                 channel=channel,
@@ -216,15 +213,9 @@ class Objective:
             )
 
         elif channel is not None:
-            logger.debug(
-                f"Creating channel objective for layer: {layer}, channel: {channel}, loss_type: {loss_type}, batch: {batch}"
-            )
             return channel_obj(layer, channel, loss_type, obj_name=obj_name, batch=batch)
 
         else:
-            logger.debug(
-                f"Creating layer objective for layer: {layer}, loss_type: {loss_type}, batch: {batch}"
-            )
             return layer_obj(layer, loss_type, obj_name=obj_name, batch=batch)
 
     def __str__(self):
@@ -237,7 +228,7 @@ class Objective:
         if isinstance(other, Objective):
             logger.debug(f"Adding Objective: {self.name} with Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) + other(act_dict)
-            name = f"{self.name}_{other.name}"
+            name = f"{self.name}+{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
@@ -260,7 +251,7 @@ class Objective:
         objective_func = lambda act_dict: sum(
             [objective(act_dict) for objective in objectives]
         )
-        name = "_".join([objective.name for objective in objectives])
+        name = "+".join([objective.name for objective in objectives])
         return Objective(objective_func, name)
 
     def __sub__(self, other: Union["Objective", float, int]) -> "Objective":
@@ -269,7 +260,7 @@ class Objective:
                 f"Subtracting Objective: {other.name} from Objective: {self.name}"
             )
             objective_func = lambda act_dict: self(act_dict) - other(act_dict)
-            name = f"{self.name}_{other.name}"
+            name = f"{self.name}-{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
@@ -293,13 +284,13 @@ class Objective:
                 f"Multiplying Objective: {self.name} with Objective: {other.name}"
             )
             objective_func = lambda act_dict: self(act_dict) * other(act_dict)
-            name = f"{self.name}_{other.name}"
+            name = f"{self.name}*{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):
             logger.debug(f"Multiplying Objective: {self.name} with value: {other}")
             objective_func = lambda act_dict: self(act_dict) * other
-            name = f"{other}{self.name}"
+            name = f"{other}*{self.name}"
             return Objective(objective_func, name)
 
         else:
@@ -309,7 +300,7 @@ class Objective:
         if isinstance(other, Objective):
             logger.debug(f"Dividing Objective: {self.name} by Objective: {other.name}")
             objective_func = lambda act_dict: self(act_dict) / other(act_dict)
-            name = f"{self.name}_{other.name}"
+            name = f"{self.name}/{other.name}"
             return Objective(objective_func, name)
 
         elif isinstance(other, (float, int)):

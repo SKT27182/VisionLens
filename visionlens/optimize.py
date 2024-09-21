@@ -10,13 +10,13 @@ from typing import Callable, List, Literal, Optional, Tuple, Union
 from visionlens.images import (
     compose,
     normalize,
-    pixel_image,
+    get_images,
     STANDARD_TRANSFORMS,
     preprocess_inceptionv1,
 )
 from visionlens.objectives import Objective, MultiHook, AD
 from visionlens.utils import T, M, A, device, create_logger
-from visionlens.display_img_utils import display_images_in_table, save_image
+from visionlens.display_img_utils import display_images_in_table, _save_images
 
 logger = create_logger(__name__)
 
@@ -47,7 +47,7 @@ class Visualizer:
 
         if param_f is None:
             logger.debug("Using random pixel image of shape (1, 3, 224, 224)")
-            param_f = lambda: pixel_image((1, 3, 224, 224))
+            self.param_f = lambda: get_images(w=224, h=224)
         else:
             logger.debug("Using custom image parameter function")
             self.param_f = param_f
@@ -109,29 +109,11 @@ class Visualizer:
 
         return loss.item()
 
-    def _get_image_labels(self, batch_size: int, objective_name: str):
-
-        objective_names = objective_name.split("_")
-
-        objective_names = [name for name in objective_names if "diversity" not in name]
-
-        n_objectives = len(objective_names)
-
-        if n_objectives == batch_size:
-            return objective_names
-        elif n_objectives < batch_size:
-            objective_name = objective_names[0]
-            return [f"{objective_name}_{i}" for i in range(batch_size)]
-        else:
-            return objective_names[:batch_size]
-
     def visualize(
         self,
         lr: float = 1e-1,
-        epochs: int = 200,
         freq: int = 10,
-        threshold: Tuple[int] = (512,),
-        save_images: Literal["last", "threshold", None] = None,
+        threshold: Union[Tuple[int], List[int]] = (512,),
         save_path: str = "images/",
         show_last: bool = True,
     ):
@@ -142,19 +124,11 @@ class Visualizer:
             freq (int, optional): Frequency to display the image. Defaults to 10.
             threshold (Tuple[int], optional): Epochs to save the image. Defaults to (512,).
             show_last (bool, optional): Show the final image. Defaults to True.
-            epochs (int, optional): Number of epochs to run. Defaults to 100.
         """
 
         params, img_f = self.param_f()
 
         batch_size = params[0].shape[0]
-        
-        if hasattr(self.objective_f, "name"):
-            logger.debug(f"Objective function name: {self.objective_f.name}")
-            images_labels = self._get_image_labels(batch_size, self.objective_f.name)
-        else:
-            logger.warning("Objective function does not have a name attribute.")
-            images_labels = [f"image_{i}" for i in range(batch_size)]
 
         optimizer = torch.optim.Adam(params, lr=lr)
 
@@ -163,29 +137,31 @@ class Visualizer:
         losses: List[float] = []
 
         try:
+            epochs = max(threshold) + 1
             for epoch in range(epochs):
                 loss = self._single_forward_loop(self.model, optimizer, img_f)
 
                 if epoch % freq == 0:
                     clear_output(wait=True)
 
-                    display_images_in_table(img_f(), images_labels)
+                    display_images_in_table(img_f())
 
                     logger.info(f"Epoch {epoch}/{epochs} - Loss: {loss}")
 
                 if epoch in threshold:
                     im = img_f()
                     images[threshold.index(epoch)] = im
+                    logger.debug(f"Saving image at epoch {epoch}")
+                    # add _{epoch} to the image name
+                    _save_images(im, save_path, f"image_{epoch}")
 
-                    if save_images == "threshold":
-                        saving_path = f"{save_path}/{self.objective_f.name}_{epoch}.png"
-                        # save_image(im, saving_path)
                 losses.append(loss)
+
         except KeyboardInterrupt:
             logger.warning("Interrupted by user.")
 
         if show_last:
 
-            display_images_in_table(img_f(), images_labels)
+            display_images_in_table(img_f())
 
         return images

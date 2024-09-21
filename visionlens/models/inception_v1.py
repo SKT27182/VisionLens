@@ -131,7 +131,7 @@ class InceptionV1(nn.Module):
 
     def __init__(
         self,
-        weights: str = model_urls["inceptionv1"],
+        pretrained: bool = True,
         progress: bool = True,
         redirected_ReLU: bool = True,
     ):
@@ -601,9 +601,11 @@ class InceptionV1(nn.Module):
 
         self.add_layers(redirected_ReLU)
 
-        if weights:
+        if pretrained:
             self.load_state_dict(
-                torch.hub.load_state_dict_from_url(weights, progress=progress)
+                torch.hub.load_state_dict_from_url(
+                    model_urls["inceptionv1"], progress=progress
+                )
             )
 
     def add_layers(self, redirected_ReLU=True):
@@ -1107,4 +1109,3 @@ class InceptionV1(nn.Module):
         )
         softmax2 = self.softmax2(softmax2_pre_activation_matmul)
         return softmax2
-

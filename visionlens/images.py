@@ -102,7 +102,7 @@ def fft_image(shape, sd=None, decay_power=1, device=device):
     return [spectrum_real_imag_t], inner
 
 
-def image(
+def get_images(
     w,
     h=None,
     sd=None,
@@ -166,7 +166,9 @@ def random_pad_image(pad_size: int, padding_modes: List[str], fill: float):
 
     def inner(image_t: T):
         padding_mode = np.random.choice(padding_modes)
-        logger.debug(f"Padding image with {pad_size} pixels using {padding_mode} padding mode")
+        logger.debug(
+            f"Padding image with {pad_size} pixels using {padding_mode} padding mode"
+        )
         return F.pad(image_t, padding=[pad_size], padding_mode=padding_mode, fill=fill)
 
     return inner
@@ -192,7 +194,9 @@ def random_jitter_image(dx: List):
     def inner(image_t: T):
         dx_ = np.random.choice(dx)
         dy_ = np.random.choice(dx)
-        logger.debug(f"Jittering image by {dx_} pixels in x-axis and {dy_} pixels in y-axis")
+        logger.debug(
+            f"Jittering image by {dx_} pixels in x-axis and {dy_} pixels in y-axis"
+        )
         return F.affine(image_t, angle=0, translate=(dx_, dy_), scale=1, shear=0)
 
     return inner
