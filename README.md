@@ -91,3 +91,24 @@ display_images_in_table(images[0], ["Positive", "Negative"])
     <p>Negative</p>
   </div>
 </div>
+
+### Decorrrelating Channels and FFT Optimization
+
+```python
+
+obj = "mixed4b_pool_reduce_pre_relu_conv:16"
+viz = Visualizer(model, objective_f=obj)
+images1 = viz.visualize(
+    lr=0.05,
+    freq=10,
+    threshold=(250,),
+    show_last=True,
+    use_decorrelated_img=False,
+    fft=False,
+)
+
+```
+
+- Here we can use the `use_decorrelated_img` flag to decorrelate the channels and the `fft` flag to use the FFT optimization. The output in all the cases will be like this:
+
+![image](./images/mixed4b_pool_reduce_pre_relu_conv:16_250_decorr_fft.png)

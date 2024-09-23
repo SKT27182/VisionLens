@@ -118,10 +118,7 @@ def get_images(
     shape = [batch, ch, h, w]
     param_f = fft_image if fft else pixel_image
     params, image_f = param_f(shape, sd=sd, device=device)
-    if channels:
-        output = to_valid_rgb(image_f, decorrelate=False)
-    else:
-        output = to_valid_rgb(image_f, decorrelate=decorrelate)
+    output = to_valid_rgb(image_f, decorrelate=decorrelate)
     return params, output
 
 

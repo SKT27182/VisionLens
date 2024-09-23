@@ -4,7 +4,7 @@ import numpy as np
 from typing import List, Optional, Union
 import base64
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 import torch
 from torchvision.transforms.functional import to_pil_image
@@ -175,6 +175,51 @@ def _save_images(
     """Save a list of images to files."""
 
     for i, img in enumerate(images):
-        file_name = file_names[i] if isinstance(file_names, list) else f"{file_names}_{i}"
+        file_name = (
+            file_names[i] if isinstance(file_names, list) else f"{file_names}_{i}"
+        )
         file_path = f"{dir_path}/{file_name}.{fmt.lower()}"
         save_image(img, file_path, fmt, quality)
+
+
+import numpy as np
+from PIL import Image
+
+
+# Assuming images is a 4D numpy array with shape (num_images, channels, height, width)
+def save_images_as_table(images, n_rows, output_path, padding=10, labels=None):
+    num_images, _, height, width = images.shape
+
+    # if n_rows is not provided, will calculate so that the table is square
+    n_rows = n_rows if n_rows else int(np.ceil(np.sqrt(len(images))))
+    n_cols = len(images) // n_rows
+    if n_rows * n_cols < len(images):
+        n_rows += 1
+
+    # Create a blank canvas with padding
+    table_height = n_rows * (height + padding + 20) - padding
+    table_width = n_cols * (width + padding) - padding
+
+    table_image = Image.new("RGB", (table_width, table_height))
+
+    draw = ImageDraw.Draw(table_image)
+    font = ImageFont.load_default()
+
+    y_offset = 0
+
+    for idx in range(num_images):
+        img = to_pil_image(images[idx])
+        row = idx // n_cols
+        col = idx % n_cols
+        x = col * (width + padding)
+        y = row * (height + padding + 20) + y_offset
+        table_image.paste(img, (x, y))
+
+        # Add title
+        img_title = labels[idx] if labels and idx < len(labels) else f"Image_{idx + 1}"
+        text_width, text_height = draw.textbbox((0, 0), img_title, font=font)[2:]
+        text_x = x + (width - text_width) // 2
+        text_y = y + height + 5
+        draw.text((text_x, text_y), img_title, fill="white", font=font)
+
+    table_image.save(output_path, format="PNG", quality=100)

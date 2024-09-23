@@ -16,7 +16,7 @@ from visionlens.images import (
 )
 from visionlens.objectives import Objective, MultiHook, AD
 from visionlens.utils import T, M, A, device, create_logger
-from visionlens.display_img_utils import display_images_in_table, _save_images
+from visionlens.img_utils import display_images_in_table, _save_images
 
 logger = create_logger(__name__)
 
@@ -28,7 +28,6 @@ class Visualizer:
         model: M,
         objective_f: Callable[[AD], T] | str,
         model_hooks: Optional[Union[AD, MultiHook]] = None,
-        param_f: Union[Callable[[], Tuple[List[T], Callable[[], T]]], None] = None,
         loss_type: str | Callable[[T], T] = "mean",
         transforms: Union[List[Callable[[T], T]], None] = None,
         pre_process: bool = True,
@@ -44,13 +43,6 @@ class Visualizer:
             self.objective_f = Objective(objective_f, name)
 
         self.model = model.to(device)
-
-        if param_f is None:
-            logger.debug("Using random pixel image of shape (1, 3, 224, 224)")
-            self.param_f = lambda: get_images(w=224, h=224)
-        else:
-            logger.debug("Using custom image parameter function")
-            self.param_f = param_f
 
         if model_hooks is None:
             logger.debug("Creating model hooks from model")
@@ -111,9 +103,15 @@ class Visualizer:
 
     def visualize(
         self,
+        param_f: Union[Callable[[], Tuple[List[T], Callable[[], T]]], None] = None,
         lr: float = 1e-1,
         freq: int = 10,
         threshold: Union[Tuple[int], List[int]] = (512,),
+        use_decorrelated_img: bool = True,
+        fft: bool = True,
+        image_size: Union[
+            int, Tuple[int, int], Tuple[int, int, int], Tuple[int, int, int, int]
+        ] = (1, 3, 224, 224),
         save_path: str = "images/",
         show_last: bool = True,
     ):
@@ -125,6 +123,34 @@ class Visualizer:
             threshold (Tuple[int], optional): Epochs to save the image. Defaults to (512,).
             show_last (bool, optional): Show the final image. Defaults to True.
         """
+        # b, ch = 1, 3
+
+        if isinstance(image_size, int):
+            h, w = image_size, image_size
+        elif len(image_size) == 2:
+            h, w = image_size
+        elif len(image_size) == 3:
+            ch, h, w = image_size
+        elif len(image_size) == 4:
+            b, ch, h, w = image_size
+        else:
+            raise ValueError(
+                "image_size must be an integer or a tuple of 2, 3, or 4 integers"
+            )
+
+        if param_f is None:
+            logger.debug("Using random pixel image of shape (1, 3, 224, 224)")
+            self.param_f = lambda: get_images(
+                w=224,
+                h=224,
+                channels=3,
+                device=device,
+                fft=fft,
+                decorrelate=use_decorrelated_img,
+            )
+        else:
+            logger.debug("Using custom image parameter function")
+            self.param_f = param_f
 
         params, img_f = self.param_f()
 
