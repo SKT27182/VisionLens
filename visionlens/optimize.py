@@ -123,7 +123,7 @@ class Visualizer:
             threshold (Tuple[int], optional): Epochs to save the image. Defaults to (512,).
             show_last (bool, optional): Show the final image. Defaults to True.
         """
-        # b, ch = 1, 3
+        b, ch = 1, 3
 
         if isinstance(image_size, int):
             h, w = image_size, image_size
@@ -141,9 +141,10 @@ class Visualizer:
         if param_f is None:
             logger.debug("Using random pixel image of shape (1, 3, 224, 224)")
             self.param_f = lambda: get_images(
-                w=224,
-                h=224,
-                channels=3,
+                w=w,
+                h=h,
+                channels=ch,
+                batch=b,
                 device=device,
                 fft=fft,
                 decorrelate=use_decorrelated_img,

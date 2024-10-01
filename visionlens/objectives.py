@@ -196,9 +196,15 @@ class Objective:
 
         obj_parts = obj_name.split(":")
         layer = obj_parts[0]
-        channel = int(obj_parts[1]) if len(obj_parts) > 1 else None
-        height = int(obj_parts[2]) if len(obj_parts) > 2 else None
-        width = int(obj_parts[3]) if len(obj_parts) > 3 else None
+        channel = (
+            int(obj_parts[1]) if (len(obj_parts) > 1) & (obj_parts[1] != "") else None
+        )
+        height = (
+            int(obj_parts[2]) if (len(obj_parts) > 2) & (obj_parts[2] != "") else None
+        )
+        width = (
+            int(obj_parts[3]) if (len(obj_parts) > 3) & (obj_parts[3] != "") else None
+        )
 
         obj_name = f"{obj_name}-{batch}" if batch is not None else obj_name
 
@@ -213,7 +219,9 @@ class Objective:
             )
 
         elif channel is not None:
-            return channel_obj(layer, channel, loss_type, obj_name=obj_name, batch=batch)
+            return channel_obj(
+                layer, channel, loss_type, obj_name=obj_name, batch=batch
+            )
 
         else:
             return layer_obj(layer, loss_type, obj_name=obj_name, batch=batch)
@@ -352,9 +360,34 @@ def activation_loss(
 
 
 ###################### Objectives ######################
-# def handle_batch(batch=None):
+def _extract_act_pos(acts, x=None, y=None):
+    shape = acts.shape
 
-#     return lambda func: lambda act_dict: func(get_nth_batch(act_dict, batch))
+    if y is None and x is None:
+        # Both y and x are None, default to half of the spatial dimensions
+        y_ = acts.shape[2] // 2
+        x_ = acts.shape[3] // 2
+        logger.debug(f"Using default y: {y_} and x: {x_}")
+        selected_activations = acts[..., y_ : y_ + 1, x_ : x_ + 1]
+
+    elif y is not None and x is None:
+        # Width is None, select the entire x dimension
+        logger.debug(f"Selecting entire x dimension for y: {y }")
+        selected_activations = acts[..., y : y + 1, :]
+
+    elif y is None and x is not None:
+        # Height is None, select the entire y dimension
+        logger.debug(f"Selecting entire y dimension for x: {x}")
+        selected_activations = acts[..., :, x : x + 1]
+
+    else:
+        # Both y and x are not None
+        logger.debug(f"Selecting activation at y: {y} and x: {x}")
+        selected_activations = acts[..., y : y + 1, x : x + 1]
+
+    # x = shape[2] // 2 if x is None else x
+    # y = shape[3] // 2 if y is None else y
+    return selected_activations
 
 
 def handle_batch(batch=None):
@@ -433,7 +466,9 @@ def layer_obj(layer, loss_type="mean", obj_name="", batch=None):
 
 
 @objective_wrapper
-def neuron_obj(layer, channel, height, width, loss_type="mean", obj_name="", batch=None):
+def neuron_obj(
+    layer, channel, height, width, loss_type="mean", obj_name="", batch=None
+):
     logger.info(
         f"Creating neuron objective for layer: {layer}, channel: {channel}, height: {height}, width: {width}, loss_type: {loss_type}, batch: {batch}"
     )
@@ -443,27 +478,30 @@ def neuron_obj(layer, channel, height, width, loss_type="mean", obj_name="", bat
     @handle_batch(batch)
     def get_activation_loss(act_dict):
 
-        if height is None and width is None:
-            # Both height and width are None, default to half of the spatial dimensions
-            height_ = act_dict(layer).shape[2] // 2
-            width_ = act_dict(layer).shape[3] // 2
-            logger.debug(f"Using default height: {height_} and width: {width_}")
-            selected_activations = act_dict(layer)[:, channel, height_, width_]
+        # if height is None and width is None:
+        #     # Both height and width are None, default to half of the spatial dimensions
+        #     height_ = act_dict(layer).shape[2] // 2
+        #     width_ = act_dict(layer).shape[3] // 2
+        #     logger.debug(f"Using default height: {height_} and width: {width_}")
+        #     selected_activations = act_dict(layer)[:, channel, height_, width_]
 
-        elif height is not None and width is None:
-            # Width is None, select the entire width dimension
-            logger.debug(f"Selecting entire width dimension for height: {height }")
-            selected_activations = act_dict(layer)[:, channel, height, :]
+        # elif height is not None and width is None:
+        #     # Width is None, select the entire width dimension
+        #     logger.debug(f"Selecting entire width dimension for height: {height }")
+        #     selected_activations = act_dict(layer)[:, channel, height, :]
 
-        elif height is None and width is not None:
-            # Height is None, select the entire height dimension
-            logger.debug(f"Selecting entire height dimension for width: {width}")
-            selected_activations = act_dict(layer)[:, channel, :, width]
+        # elif height is None and width is not None:
+        #     # Height is None, select the entire height dimension
+        #     logger.debug(f"Selecting entire height dimension for width: {width}")
+        #     selected_activations = act_dict(layer)[:, channel, :, width]
 
-        else:
-            # Both height and width are not None
-            logger.debug(f"Selecting activation at height: {height} and width: {width}")
-            selected_activations = act_dict(layer)[:, channel, height, width]
+        # else:
+        #     # Both height and width are not None
+        #     logger.debug(f"Selecting activation at height: {height} and width: {width}")
+        #     selected_activations = act_dict(layer)[:, channel, height, width]
+        selected_activations = _extract_act_pos(
+            act_dict(layer)[:, channel, :, :], x=width, y=height
+        )
 
         return -activation_loss(selected_activations, loss_type)
 
@@ -476,7 +514,7 @@ def diversity(layer, batch=None):
         f"Creating diversity objective for layer: {layer}, batch: {batch if batch else 'all'}"
     )
 
-    obj_name = f"{layer}:diversity" 
+    obj_name = f"{layer}:diversity"
 
     def get_activation_loss(act_dict):
         activations = act_dict(layer)
@@ -521,8 +559,158 @@ def diversity(layer, batch=None):
         # Create a mask to ignore cases where m == n
         mask = torch.eye(batch_size, device=grams.device).bool()
         # maximize the diversity between the different the batches
-        diversity_loss = - torch.einsum("mij,mij->m", grams, grams).masked_fill(mask, 0).sum() / batch_size
+        diversity_loss = (
+            -torch.einsum("mij,mij->m", grams, grams).masked_fill(mask, 0).sum()
+            / batch_size
+        )
 
         return diversity_loss
+
+    return get_activation_loss, obj_name
+
+
+@objective_wrapper
+def direction_in_layer_obj(layer, direction, loss_type="mean", obj_name="", batch=None):
+    """
+    Create an objective to maximize the activation in the direction in the layer.
+    - Basis for the direction is the mean activation in each channel.
+
+    Args:
+        layer: str, The layer name.
+        direction: (A,T), The direction in which the activation is to be maximized. (C,)
+        loss_type: str, The type of loss to be used. Default is "mean".
+        obj_name: str, The name of the objective. Default is "".
+        batch: int, The batch number to process. Default is None.
+
+    Returns:
+        Callable[[AD], float]: The objective function.
+
+    """
+
+    logger.info(
+        f"Creating direction in layer objective for layer: {layer},  loss_type: {loss_type}, batch: {batch}"
+    )
+
+    obj_name = f"{layer}:direction:{direction}" if not obj_name else obj_name
+
+    @handle_batch(batch)
+    def get_activation_loss(act_dict):
+        activations = act_dict(layer)
+        # Calculate the mean activation in each channel
+        # mean_activations = activations.mean(
+        #     dim=(2, 3)
+        # )  # this is the basis for the direction
+        # Calculate the dot product between the mean activations and the direction
+        direction_in_layer = torch.nn.CosineSimilarity(dim=1)(
+            direction.reshape(1, -1, 1, 1), activations
+        )
+
+        logger.debug(
+            f"layer shape: {activations.shape}, direction shape: {direction.shape}, cosine_similarity shape: {direction_in_layer.shape}"
+        )
+
+        return -activation_loss(direction_in_layer, loss_type)
+
+    return get_activation_loss, obj_name
+
+
+@objective_wrapper
+def direction_at_position(
+    layer, direction, x=None, y=None, loss_type="mean", obj_name="", batch=None
+):
+    """
+    Create an objective to maximize the activation in the direction at the position in the layer.
+
+    Args:
+        layer: str, The layer name.
+        direction: (A,T), The direction in which the activation is to be maximized. (C,)
+        x: int, The x-coordinate of the position. Default is None.
+        y: int, The y-coordinate of the position. Default is None.
+        loss_type: str, The type of loss to be used. Default is "mean".
+        obj_name: str, The name of the objective. Default is "".
+        batch: int, The batch number to process. Default is None.
+
+    Returns:
+        Callable[[AD], float]: The objective function.
+
+    """
+
+    logger.info(
+        f"Creating direction at position objective for layer: {layer}, x: {x}, y: {y}, loss_type: {loss_type}, batch: {batch}"
+    )
+
+    obj_name = (
+        f"{layer}:direction:{direction}:position:{x}:{y}" if not obj_name else obj_name
+    )
+
+    @handle_batch(batch)
+    def get_activation_loss(act_dict):
+        activations = act_dict(layer)
+        # Calculate the dot product between the direction and the activations at the position
+
+        activations = _extract_act_pos(activations, x=x, y=y)
+        print(activations.shape)
+
+        direction_at_position = torch.nn.CosineSimilarity(dim=1)(
+            direction.reshape(1, -1, 1, 1), activations
+        )
+
+        logger.debug(
+            f"layer shape: {activations.shape}, direction shape: {direction.shape}, cosine_similarity shape: {direction_at_position.shape}"
+        )
+
+        return -activation_loss(direction_at_position, loss_type)
+
+    return get_activation_loss, obj_name
+
+
+@objective_wrapper
+def channel_interpolate(
+    layer1, channel1, layer2, channel2, alpha, loss_type="mean", obj_name="", batch=None
+):
+    """
+    Create an objective to interpolate between the activations of two channels in two layers.
+
+    Args:
+        layer1: str, The layer name of the first channel.
+        channel1: int, The channel number of the first channel.
+        layer2: str, The layer name of the second channel.
+        channel2: int, The channel number of the second channel.
+        alpha: float, The interpolation factor.
+        loss_type: str, The type of loss to be used. Default is "mean".
+        obj_name: str, The name of the objective. Default is "".
+        batch: int, The batch number to process. Default is None.
+
+    Returns:
+        Callable[[AD], float]: The objective function.
+
+    """
+
+    logger.info(
+        f"Creating channel interpolate objective for layer1: {layer1}, channel1: {channel1}, layer2: {layer2}, channel2: {channel2}, alpha: {alpha}, loss_type: {loss_type}, batch: {batch}"
+    )
+
+    obj_name = (
+        f"{layer1}:{channel1}:interpolate:{layer2}:{channel2}:{alpha}"
+        if not obj_name
+        else obj_name
+    )
+
+    @handle_batch(batch)
+    def get_activation_loss(act_dict):
+        activations1 = act_dict(layer1)
+        activations2 = act_dict(layer2)
+        # Calculate the interpolation between the activations of the two channels
+        # interpolated_activations = (
+        #     alpha * activations1[:, channel1] + (1 - alpha) * activations2[:, channel2]
+        # )
+
+        for n in range(activations1.shape[0]):
+            interpolated_activations = (
+                alpha * activations1[n, channel1]
+                + (1 - alpha) * activations2[n, channel2]
+            )
+
+        return -activation_loss(interpolated_activations, loss_type)
 
     return get_activation_loss, obj_name
