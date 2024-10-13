@@ -615,7 +615,7 @@ def direction_in_layer_obj(layer, direction, loss_type="mean", obj_name="", batc
 
 
 @objective_wrapper
-def direction_at_position(
+def direction_at_position_obj(
     layer, direction, x=None, y=None, loss_type="mean", obj_name="", batch=None
 ):
     """
@@ -649,7 +649,6 @@ def direction_at_position(
         # Calculate the dot product between the direction and the activations at the position
 
         activations = _extract_act_pos(activations, x=x, y=y)
-        print(activations.shape)
 
         direction_at_position = torch.nn.CosineSimilarity(dim=1)(
             direction.reshape(1, -1, 1, 1), activations
