@@ -721,3 +721,43 @@ def channel_interpolate(
         return final_loss
 
     return get_activation_loss, obj_name
+
+
+@objective_wrapper
+def alignment(layer, decay_ratio=5.0, loss_type="mean", obj_name="", batch=None):
+    """
+    Create an objective to align the activations across the batch.
+
+    # Source: https://github.com/greentfrapp/lucent/blob/dev/lucent/optvis/objectives.py#L304
+
+    Args:
+        layer: str, The layer name.
+        decay_ratio: float, The decay ratio for the alignment. Default is 0.5.
+        loss_type: str, The type of loss to be used. Default is "mean".
+        obj_name: str, The name of the objective. Default is "".
+        batch: int, The batch number to process. Default is None.
+
+    Returns:
+        Callable[[AD], float]: The objective function.
+
+    """
+
+    logger.info(
+        f"Creating alignment objective for layer: {layer}, decay_ratio: {decay_ratio}, loss_type: {loss_type}, batch: {batch}"
+    )
+
+    obj_name = f"{layer}:alignment" if not obj_name else obj_name
+
+    @handle_batch(batch)
+    def get_activation_loss(model):
+        batch_n = model(layer).shape[0]
+        layer_t = model(layer)
+        accum = 0
+        for d in [1, 2, 3, 4]:
+            for i in range(batch_n - d):
+                a, b = i, i + d
+                arr_a, arr_b = layer_t[a], layer_t[b]
+                accum += ((arr_a - arr_b) ** 2).mean() / decay_ratio ** float(d)
+        return accum
+
+    return get_activation_loss, obj_name
