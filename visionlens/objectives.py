@@ -196,14 +196,15 @@ class Objective:
 
         obj_parts = obj_name.split(":")
         layer = obj_parts[0]
+
         channel = (
-            int(obj_parts[1]) if (len(obj_parts) > 1) & (obj_parts[1] != "") else None
+            int(obj_parts[1]) if (len(obj_parts) > 1) and (obj_parts[1] != "") else None
         )
         height = (
-            int(obj_parts[2]) if (len(obj_parts) > 2) & (obj_parts[2] != "") else None
+            int(obj_parts[2]) if (len(obj_parts) > 2) and (obj_parts[2] != "") else None
         )
         width = (
-            int(obj_parts[3]) if (len(obj_parts) > 3) & (obj_parts[3] != "") else None
+            int(obj_parts[3]) if (len(obj_parts) > 3) and (obj_parts[3] != "") else None
         )
 
         obj_name = f"{obj_name}-{batch}" if batch is not None else obj_name
@@ -514,6 +515,8 @@ def diversity(layer, batch=None):
         f"Creating diversity objective for layer: {layer}, batch: {batch if batch else 'all'}"
     )
 
+    # Source: https://github.com/greentfrapp/lucent/blob/dev/lucent/optvis/objectives.py#L304
+
     obj_name = f"{layer}:diversity"
 
     def get_activation_loss(act_dict):
@@ -665,7 +668,7 @@ def direction_at_position_obj(
 
 @objective_wrapper
 def channel_interpolate(
-    layer1, channel1, layer2, channel2, alpha, loss_type="mean", obj_name="", batch=None
+    layer1, channel1, layer2, channel2, loss_type="mean", obj_name="", batch=None
 ):
     """
     Create an objective to interpolate between the activations of two channels in two layers.
@@ -675,7 +678,6 @@ def channel_interpolate(
         channel1: int, The channel number of the first channel.
         layer2: str, The layer name of the second channel.
         channel2: int, The channel number of the second channel.
-        alpha: float, The interpolation factor.
         loss_type: str, The type of loss to be used. Default is "mean".
         obj_name: str, The name of the objective. Default is "".
         batch: int, The batch number to process. Default is None.
@@ -686,11 +688,11 @@ def channel_interpolate(
     """
 
     logger.info(
-        f"Creating channel interpolate objective for layer1: {layer1}, channel1: {channel1}, layer2: {layer2}, channel2: {channel2}, alpha: {alpha}, loss_type: {loss_type}, batch: {batch}"
+        f"Creating channel interpolate objective for layer1: {layer1}, channel1: {channel1}, layer2: {layer2}, channel2: {channel2}, loss_type: {loss_type}, batch: {batch}"
     )
 
     obj_name = (
-        f"{layer1}:{channel1}:interpolate:{layer2}:{channel2}:{alpha}"
+        f"{layer1}:{channel1}:interpolate:{layer2}:{channel2}"
         if not obj_name
         else obj_name
     )
@@ -699,17 +701,23 @@ def channel_interpolate(
     def get_activation_loss(act_dict):
         activations1 = act_dict(layer1)
         activations2 = act_dict(layer2)
-        # Calculate the interpolation between the activations of the two channels
-        # interpolated_activations = (
-        #     alpha * activations1[:, channel1] + (1 - alpha) * activations2[:, channel2]
-        # )
 
-        for n in range(activations1.shape[0]):
-            interpolated_activations = (
-                alpha * activations1[n, channel1]
-                + (1 - alpha) * activations2[n, channel2]
-            )
+        batch_n = activations1.shape[0]
 
-        return -activation_loss(interpolated_activations, loss_type)
+        weights = torch.linspace(
+            0,
+            1,
+            batch_n,
+        )
+
+        final_loss = 0
+
+        for n in range(batch_n):
+
+            final_loss -= (1 - weights[n]) * activation_loss(activations1[n])
+
+            final_loss -= weights[n] * activation_loss(activations2[n])
+
+        return final_loss
 
     return get_activation_loss, obj_name

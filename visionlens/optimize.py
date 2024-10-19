@@ -95,8 +95,13 @@ class Visualizer:
 
         logger.info(f"Loss: {loss.item()}, type: {type(loss)}")
 
+        # Compute gradients
         loss.backward()
 
+        # Normalize the gradients
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+        # Update the parameters
         optimizer.step()
 
         return loss.item()
@@ -113,6 +118,7 @@ class Visualizer:
             int, Tuple[int, int], Tuple[int, int, int], Tuple[int, int, int, int]
         ] = (1, 3, 224, 224),
         save_path: str = "images/",
+        save_images: bool = False,
         show_last: bool = True,
     ):
         """Visualize the model output by optimizing the input image.
@@ -159,7 +165,7 @@ class Visualizer:
 
         optimizer = torch.optim.Adam(params, lr=lr)
 
-        images: T = torch.zeros((len(threshold), *img_f().shape), device=device)
+        images: T = torch.empty(size=(0, *img_f().shape), device=device)
 
         losses: List[float] = []
 
@@ -177,10 +183,14 @@ class Visualizer:
 
                 if epoch in threshold:
                     im = img_f()
-                    images[threshold.index(epoch)] = im
-                    logger.debug(f"Saving image at epoch {epoch}")
-                    # add _{epoch} to the image name
-                    _save_images(im, save_path, f"image_{epoch}")
+                    images = torch.cat(
+                        (images, einops.rearrange(im, "b c h w -> 1 b c h w").detach())
+                    )
+
+                    if save_images:
+                        logger.debug(f"Saving image at epoch {epoch}")
+                        # add _{epoch} to the image name
+                        _save_images(im, save_path, f"image_{epoch}")
 
                 losses.append(loss)
 

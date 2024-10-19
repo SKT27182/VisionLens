@@ -182,10 +182,6 @@ def _save_images(
         save_image(img, file_path, fmt, quality)
 
 
-import numpy as np
-from PIL import Image
-
-
 # Assuming images is a 4D numpy array with shape (num_images, channels, height, width)
 def save_images_as_table(images, n_rows, output_path, padding=10, labels=None):
     num_images, _, height, width = images.shape
