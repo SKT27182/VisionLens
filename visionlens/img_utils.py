@@ -234,7 +234,7 @@ def images_to_video(images, path: str, fps: int = 5):
         raise ValueError("Invalid image shape")
 
     images = images.detach().cpu().numpy()
-    iamges = (images * 255).astype("uint8")
+    images = (images * 255).astype("uint8")
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(path, fourcc, fps, (w, h))
