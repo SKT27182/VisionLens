@@ -177,7 +177,7 @@ class Visualizer:
 
                     display_images_in_table(img_f())
 
-                    logger.info(f"Epoch {epoch}/{epochs} - Loss: {loss}")
+                    logger.info(f"Epoch {epoch}/{epochs} - Loss: {loss:.2f}")
 
                 if epoch in threshold:
                     im = img_f()

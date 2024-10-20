@@ -112,3 +112,23 @@ images1 = viz.visualize(
 - Here we can use the `use_decorrelated_img` flag to decorrelate the channels and the `fft` flag to use the FFT optimization. The output in all the cases will be like this:
 
 ![image](./images/mixed4b_pool_reduce_pre_relu_conv:16_250_decorr_fft.png)
+
+### Channel Interpolate
+
+```python
+obj = objectives.channel_interpolate(
+    "mixed4a", 476, "mixed4d_3x3_bottleneck_pre_relu_conv", 139
+)
+
+
+img_f = lambda: get_images(w=224, batch=10)
+
+viz = Visualizer(model, objective_f=obj)
+images = viz.visualize(
+    lr=0.05, freq=10, threshold=(512,), show_last=True, param_f=img_f
+)
+```
+
+- Here we can use the `channel_interpolate` function to interpolate between two channels. The output will be like this:
+
+![image](./images/channel_interpolate_mixed4a476_mixed4d_3x3_bottleneck_pre_relu_conv139.gif)
