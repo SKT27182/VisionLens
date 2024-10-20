@@ -48,12 +48,8 @@ class Visualizer:
             logger.debug("Creating model hooks from model")
             self.model_hooks = MultiHook(model)
         else:
-            if isinstance(model_hooks, MultiHook):
-                self.model_hooks = model_hooks
-            elif isinstance(model_hooks, AD):
-                self.model_hooks = model_hooks
-            else:
-                raise TypeError("model_hooks must be of type MultiHook")
+            logger.debug("Using custom model hooks.")
+            self.model_hooks = model_hooks
 
         if transforms is None:
             transforms = STANDARD_TRANSFORMS.copy()
