@@ -5,6 +5,7 @@ from typing import List, Optional, Union
 import base64
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
+import cv2
 
 import torch
 from torchvision.transforms.functional import to_pil_image
@@ -150,7 +151,7 @@ def display_image(
     IPython.display.display(IPython.display.HTML(html_str))
 
 
-def save_image(
+def _save_image(
     image: T,
     file_path: str,
     fmt: str = "PNG",
@@ -165,7 +166,7 @@ def save_image(
     img.save(file_path, format=fmt, quality=quality)
 
 
-def _save_images(
+def save_images(
     images: T,
     dir_path: str,
     file_names: Union[List[str], str],
@@ -179,7 +180,7 @@ def _save_images(
             file_names[i] if isinstance(file_names, list) else f"{file_names}_{i}"
         )
         file_path = f"{dir_path}/{file_name}.{fmt.lower()}"
-        save_image(img, file_path, fmt, quality)
+        _save_image(img, file_path, fmt, quality)
 
 
 # Assuming images is a 4D numpy array with shape (num_images, channels, height, width)
@@ -219,3 +220,42 @@ def save_images_as_table(images, n_rows, output_path, padding=10, labels=None):
         draw.text((text_x, text_y), img_title, fill="white", font=font)
 
     table_image.save(output_path, format="PNG", quality=100)
+
+
+def images_to_video(images, path: str, fps: int = 5):
+
+    h, w = images.shape[-2], images.shape[-1]
+
+    if (len(images.shape) == 5) & (images.shape[1] == 1):  # (1 C H W)
+        images = einops.rearrange(images, "b  1 c h w -> b h w c")
+    elif len(images.shape) == 4:
+        images = einops.rearrange(images, "b c h w -> b h w c")
+    else:
+        raise ValueError("Invalid image shape")
+
+    images = images.detach().cpu().numpy()
+    iamges = (images * 255).astype("uint8")
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(path, fourcc, fps, (w, h))
+
+    for img in images:
+
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+        out.write(img)
+
+    out.release()
+
+
+def images_to_gif(images, path: str, fps: int = 5):
+
+    images = [tensor_to_img_array(img) for img in images]
+
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=1000 // fps,
+        loop=0,
+    )

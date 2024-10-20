@@ -16,7 +16,7 @@ from visionlens.images import (
 )
 from visionlens.objectives import Objective, MultiHook, AD
 from visionlens.utils import T, M, A, device, create_logger
-from visionlens.img_utils import display_images_in_table, _save_images
+from visionlens.img_utils import display_images_in_table, save_images
 
 logger = create_logger(__name__)
 
@@ -186,11 +186,12 @@ class Visualizer:
                     images = torch.cat(
                         (images, einops.rearrange(im, "b c h w -> 1 b c h w").detach())
                     )
+                    print(images.shape)
 
                     if save_images:
                         logger.debug(f"Saving image at epoch {epoch}")
                         # add _{epoch} to the image name
-                        _save_images(im, save_path, f"image_{epoch}")
+                        save_images(im, save_path, f"image_{epoch}")
 
                 losses.append(loss)
 
