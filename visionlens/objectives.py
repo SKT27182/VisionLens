@@ -714,9 +714,9 @@ def channel_interpolate(
 
         for n in range(batch_n):
 
-            final_loss -= (1 - weights[n]) * activation_loss(activations1[n])
+            final_loss -= (1 - weights[n]) * activation_loss(activations1[n], loss_type)
 
-            final_loss -= weights[n] * activation_loss(activations2[n])
+            final_loss -= weights[n] * activation_loss(activations2[n], loss_type)
 
         return final_loss
 

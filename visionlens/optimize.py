@@ -91,7 +91,7 @@ class Visualizer:
 
         loss = self.objective_f(self.model_hooks)
 
-        logger.info(f"Loss: {loss.item()}, type: {type(loss)}")
+        logger.info(f"Loss: {loss.item():.2f}")
 
         # Compute gradients
         loss.backward()
@@ -184,7 +184,6 @@ class Visualizer:
                     images = torch.cat(
                         (images, einops.rearrange(im, "b c h w -> 1 b c h w").detach())
                     )
-                    print(images.shape)
 
                     if save_images:
                         logger.debug(f"Saving image at epoch {epoch}")

@@ -1,5 +1,6 @@
 import IPython
 import einops
+from matplotlib import pyplot as plt
 import numpy as np
 from typing import List, Optional, Union
 import base64
