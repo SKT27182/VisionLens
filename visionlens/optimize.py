@@ -143,7 +143,7 @@ class Visualizer:
             )
 
         if param_f is None:
-            logger.debug("Using random pixel image of shape (1, 3, 224, 224)")
+            logger.info("Using random pixel image of shape (1, 3, 224, 224)")
             self.param_f = lambda: get_images(
                 w=w,
                 h=h,
@@ -154,18 +154,20 @@ class Visualizer:
                 decorrelate=use_decorrelated_img,
             )
         else:
-            logger.debug("Using custom image parameter function")
+            logger.info("Using custom image parameter function")
             self.param_f = param_f
 
         params, img_f = self.param_f()
-
-        batch_size = params[0].shape[0]
 
         optimizer = torch.optim.Adam(params, lr=lr)
 
         images: T = torch.empty(size=(0, *img_f().shape), device=device)
 
         losses: List[float] = []
+
+        # display_images_in_table(img_f())
+
+        # return images
 
         try:
             epochs = max(threshold) + 1

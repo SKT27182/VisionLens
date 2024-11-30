@@ -19,6 +19,8 @@ logger = create_logger(__name__)
 def tensor_to_img_array(tensor: T) -> Image:
     tensor = tensor.cpu().detach()
 
+    print(tensor.shape)
+
     if (len(tensor.shape) == 4) & (tensor.shape[0] == 1):  # (1 C H W)
         logger.warning(
             f"Converting {tensor.shape} tensor to 3D tensor by removing first dimension."
