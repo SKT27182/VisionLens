@@ -165,10 +165,6 @@ class Visualizer:
 
         losses: List[float] = []
 
-        # display_images_in_table(img_f())
-
-        # return images
-
         try:
             epochs = max(threshold) + 1
             for epoch in range(epochs):
